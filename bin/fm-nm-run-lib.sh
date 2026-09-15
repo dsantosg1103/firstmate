@@ -189,13 +189,17 @@ fm_nm_run_is_pipeline_owned_active() {  # <toon-output>
 # with fm_nm_head_matches_worktree above, and it only ever replaces a TERMINAL
 # answer with a LIVE one: when the newest row binds but is terminal, the older
 # rows are scanned for a live row that ALSO binds to this worktree, and that
-# row's status word is printed instead. A live row whose head resolves in this
-# copy binds by fm_nm_head_matches_worktree. A live row whose head does NOT
-# resolve (the routine shape: the pipeline's fix-round commits live only in the
-# gate repo) binds ONLY when the held terminal row sits at EXACTLY the worktree
-# HEAD - the same exact-equality anchor the pipeline-continuation rule above
-# requires, so branch-name coincidence and other tasks' runs still never
-# match. A terminal newest row is the corpse of a crashed attempt whenever a
+# row's status word is printed instead. A live row binds by
+# fm_nm_head_matches_worktree. A live row that rule cannot bind - its head does
+# not resolve here (the routine shape: the pipeline's fix-round commits live
+# only in the gate repo), or it resolves on a line of history the worktree HEAD
+# does not share (the replayed-onto-an-advanced-upstream shape) - binds ONLY
+# when the held terminal row sits at EXACTLY the worktree HEAD, the same
+# exact-equality anchor the pipeline-continuation rule above requires, so
+# branch-name coincidence and other tasks' runs still never match. Both
+# unbindable shapes reach that one anchor for the same reason they do above: a
+# rebased head is exactly as unprovable as an unfetched one.
+# A terminal newest row is the corpse of a crashed attempt whenever a
 # live run for the same worktree is still on the ledger, so it is not the
 # present. Nothing else widens: a newest row that does not bind still ends the
 # scan, a newest row whose class is live or unclassifiable is still answered
@@ -246,12 +250,11 @@ fm_nm_runs_status_for_worktree() {  # <worktree> <branch> <runs-list-output> [ex
     if [ -n "$decided" ]; then
       # Live-over-terminal: the newest row bound to this worktree but is a
       # terminal record, so the older rows are searched for a live run that
-      # binds to the same worktree by the same head rule. Only such a row
+      # binds to the same worktree by the same head rule, or - when that rule
+      # cannot bind the row at all - by the exact-head anchor. Only such a row
       # displaces the held terminal word; anything else leaves it standing.
       [ "$(fm_nm_run_status_class "$st")" = live ] || continue
-      if [ -n "$(fm_nm_resolve_commit "$wt" "$sha")" ]; then
-        fm_nm_head_matches_worktree "$wt" "$sha" || continue
-      else
+      if ! fm_nm_head_matches_worktree "$wt" "$sha"; then
         [ -n "$decided_exact" ] || continue
       fi
       decided=$st

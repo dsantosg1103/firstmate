@@ -1295,6 +1295,53 @@ LEDGER
   pass "a live run whose head was rebased outranks a terminal row at the worktree's commit"
 }
 
+# The same incident with the ledger in its other routine order: the terminal
+# row at the worktree's exact commit is the NEWEST one, and the live rebased
+# run is older. The newest row binds by exact equality, so the scan holds a
+# terminal word and searches the older rows for a live sibling - and that
+# sibling's rebased head resolves here yet shares no ancestry with the worktree
+# HEAD in either direction. A rebased head is exactly as unprovable as an
+# unfetched one, so it reaches the same exact-head anchor and the live run wins.
+test_rebased_live_sibling_older_than_terminal_row_still_wins() {
+  reset_fakes
+  local d base_head rebased_head short_base short_rebased out
+  d=$(new_case rebased-live-sibling)
+  make_repo_on_branch "$d/wt" fm/feat-rebasedsibling
+  git -C "$d/wt" commit -q --allow-empty -m 'the work this crew submitted'
+  base_head=$(git -C "$d/wt" rev-parse HEAD)
+  git -C "$d/wt" checkout -q --detach "$(git -C "$d/wt" rev-list --max-parents=0 HEAD)"
+  git -C "$d/wt" commit -q --allow-empty -m 'upstream advanced'
+  git -C "$d/wt" commit -q --allow-empty -m 'the pipeline replayed the branch onto it'
+  rebased_head=$(git -C "$d/wt" rev-parse HEAD)
+  git -C "$d/wt" checkout -q fm/feat-rebasedsibling
+  # The divergence this case rests on: the live row's head is a real object in
+  # the task copy, so the head rule is genuinely consulted, and it binds in
+  # neither direction.
+  [ -n "$(git -C "$d/wt" rev-parse --verify --quiet "${rebased_head}^{commit}")" ] \
+    || fail "the rebased head must resolve in the task copy"
+  git -C "$d/wt" merge-base --is-ancestor "$base_head" "$rebased_head" \
+    && fail "the rebased head must not descend from the worktree HEAD"
+  git -C "$d/wt" merge-base --is-ancestor "$rebased_head" "$base_head" \
+    && fail "the worktree HEAD must not descend from the rebased head"
+  short_base=$(git -C "$d/wt" rev-parse --short=7 "$base_head")
+  short_rebased=$(git -C "$d/wt" rev-parse --short=7 "$rebased_head")
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/rebasedsibling.meta" "window=fm:fm-rebasedsibling" \
+    "worktree=$d/wt" "kind=ship"
+  FM_FAKE_RUN_HEAD="$base_head"
+  FM_FAKE_AXI_STATUS="$(run_failed fm/feat-rebasedsibling)"
+  FM_FAKE_RUNS_LIST="$(cat <<LEDGER
+  failed     fm/feat-rebasedsibling ${short_base}  2026-09-07 14:14
+  running    fm/feat-rebasedsibling ${short_rebased}  2026-09-07 09:48
+LEDGER
+)"
+  out=$(run_crew_state "$d" rebasedsibling)
+  assert_equals "state: working · source: run-step · validating (background run)" "$out" \
+    "the older live rebased run is still this worktree's present, reported in full"
+  assert_not_contains "$out" "state: failed" "a terminal outcome that never happened must not be reported"
+  pass "a rebased live sibling older than the terminal row still outranks it"
+}
+
 # Negative control for the rule above: recognizing a live row the head rule
 # cannot bind widened only WHICH rows reach the anchor, never the anchor
 # itself. Same rebased live row, but the immediately-older row sits at a
@@ -2622,6 +2669,7 @@ test_terminal_corpse_loses_to_live_run_on_same_branch
 test_runs_list_live_row_outranks_newer_terminal_row
 test_unfetched_live_sibling_outranks_terminal_row_at_exact_head
 test_rebased_live_run_outranks_terminal_row_at_worktree_head
+test_rebased_live_sibling_older_than_terminal_row_still_wins
 test_rebased_live_run_without_exact_anchor_binds_nothing
 test_only_terminal_rows_keep_newest_first_precedence
 test_unknown_status_row_keeps_newest_first_precedence
