@@ -1441,6 +1441,59 @@ LEDGER
   pass "a rebased live row without the exact anchor still binds nothing"
 }
 
+# The class guard the anchor rests on: only a LIVE row the head rule cannot
+# bind is recognizable as a pipeline continuation. A TERMINAL row the head rule
+# cannot bind is a foreign or superseded run, and this change made the diverged
+# (not merely unfetched) shape reach that guard for the first time. Same rebased
+# head as the case above, but the newest row is FAILED, and the row immediately
+# older sits at EXACTLY the worktree HEAD - a perfect anchor. Relax the guard
+# and that anchor resurrects the incident's own false verdict from a second
+# ledger shape, so the terminal row must end the scan before ever reaching it.
+test_diverged_terminal_newest_row_is_never_anchored() {
+  reset_fakes
+  local d base_head rebased_head short_base short_rebased out gen
+  d=$(new_case diverged-terminal-anchor)
+  make_repo_on_branch "$d/wt" fm/feat-divergedterminal
+  git -C "$d/wt" commit -q --allow-empty -m 'the work this crew submitted'
+  base_head=$(git -C "$d/wt" rev-parse HEAD)
+  git -C "$d/wt" checkout -q --detach "$(git -C "$d/wt" rev-list --max-parents=0 HEAD)"
+  git -C "$d/wt" commit -q --allow-empty -m 'upstream advanced'
+  git -C "$d/wt" commit -q --allow-empty -m 'another task replayed its branch onto it'
+  rebased_head=$(git -C "$d/wt" rev-parse HEAD)
+  git -C "$d/wt" checkout -q fm/feat-divergedterminal
+  # The two facts this case rests on: the newest row resolves here yet binds in
+  # neither direction, and the row behind it is a perfect exact-head anchor.
+  [ -n "$(git -C "$d/wt" rev-parse --verify --quiet "${rebased_head}^{commit}")" ] \
+    || fail "the diverged head must resolve in the task copy"
+  git -C "$d/wt" merge-base --is-ancestor "$base_head" "$rebased_head" \
+    && fail "the diverged head must not descend from the worktree HEAD"
+  git -C "$d/wt" merge-base --is-ancestor "$rebased_head" "$base_head" \
+    && fail "the worktree HEAD must not descend from the diverged head"
+  [ "$(git -C "$d/wt" rev-parse HEAD)" = "$base_head" ] \
+    || fail "the anchor row must sit at exactly the worktree HEAD"
+  short_base=$(git -C "$d/wt" rev-parse --short=7 "$base_head")
+  short_rebased=$(git -C "$d/wt" rev-parse --short=7 "$rebased_head")
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/divergedterminal.meta" "window=fm:fm-divergedterminal" \
+    "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<LEDGER
+  running    fm/other-crew aaaaaaa  2026-09-07 15:00
+  failed     fm/feat-divergedterminal ${short_rebased}  2026-09-07 14:14
+  completed  fm/feat-divergedterminal ${short_base}  2026-09-07 09:48
+LEDGER
+)"
+  FM_FAKE_BUSY=1
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" divergedterminal)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" divergedterminal busy --gen "$gen" \
+    --source claude-hook --event user-prompt-submit
+  out=$(run_crew_state "$d" divergedterminal)
+  assert_not_contains "$out" "source: run-step" "a diverged terminal newest row must not bind a run"
+  assert_not_contains "$out" "state: failed" "and must never be anchored into a terminal verdict"
+  assert_contains "$out" "source: pane" "the scan ends at the terminal row and the pane answers"
+  pass "a diverged terminal newest row is never anchored by the row behind it"
+}
+
 # The preference must not widen: candidates of the SAME liveness class keep the
 # listing's existing newest-first precedence, so two terminal rows still resolve
 # to the newer one rather than to whichever the scan happens to reach last.
@@ -2721,6 +2774,7 @@ test_rebased_live_run_outranks_terminal_row_at_worktree_head
 test_rebased_live_sibling_older_than_terminal_row_still_wins
 test_rebased_live_sibling_without_exact_anchor_leaves_terminal_standing
 test_rebased_live_run_without_exact_anchor_binds_nothing
+test_diverged_terminal_newest_row_is_never_anchored
 test_only_terminal_rows_keep_newest_first_precedence
 test_unknown_status_row_keeps_newest_first_precedence
 test_terminal_run_without_live_sibling_is_unchanged
