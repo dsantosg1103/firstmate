@@ -1295,102 +1295,6 @@ LEDGER
   pass "a live run whose head was rebased outranks a terminal row at the worktree's commit"
 }
 
-# The same incident with the ledger in its other routine order: the terminal
-# row at the worktree's exact commit is the NEWEST one, and the live rebased
-# run is older. The newest row binds by exact equality, so the scan holds a
-# terminal word and searches the older rows for a live sibling - and that
-# sibling's rebased head resolves here yet shares no ancestry with the worktree
-# HEAD in either direction. A rebased head is exactly as unprovable as an
-# unfetched one, so it reaches the same exact-head anchor and the live run wins.
-test_rebased_live_sibling_older_than_terminal_row_still_wins() {
-  reset_fakes
-  local d base_head rebased_head short_base short_rebased out
-  d=$(new_case rebased-live-sibling)
-  make_repo_on_branch "$d/wt" fm/feat-rebasedsibling
-  git -C "$d/wt" commit -q --allow-empty -m 'the work this crew submitted'
-  base_head=$(git -C "$d/wt" rev-parse HEAD)
-  git -C "$d/wt" checkout -q --detach "$(git -C "$d/wt" rev-list --max-parents=0 HEAD)"
-  git -C "$d/wt" commit -q --allow-empty -m 'upstream advanced'
-  git -C "$d/wt" commit -q --allow-empty -m 'the pipeline replayed the branch onto it'
-  rebased_head=$(git -C "$d/wt" rev-parse HEAD)
-  git -C "$d/wt" checkout -q fm/feat-rebasedsibling
-  # The divergence this case rests on: the live row's head is a real object in
-  # the task copy, so the head rule is genuinely consulted, and it binds in
-  # neither direction.
-  [ -n "$(git -C "$d/wt" rev-parse --verify --quiet "${rebased_head}^{commit}")" ] \
-    || fail "the rebased head must resolve in the task copy"
-  git -C "$d/wt" merge-base --is-ancestor "$base_head" "$rebased_head" \
-    && fail "the rebased head must not descend from the worktree HEAD"
-  git -C "$d/wt" merge-base --is-ancestor "$rebased_head" "$base_head" \
-    && fail "the worktree HEAD must not descend from the rebased head"
-  short_base=$(git -C "$d/wt" rev-parse --short=7 "$base_head")
-  short_rebased=$(git -C "$d/wt" rev-parse --short=7 "$rebased_head")
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/rebasedsibling.meta" "window=fm:fm-rebasedsibling" \
-    "worktree=$d/wt" "kind=ship"
-  FM_FAKE_RUN_HEAD="$base_head"
-  FM_FAKE_AXI_STATUS="$(run_failed fm/feat-rebasedsibling)"
-  FM_FAKE_RUNS_LIST="$(cat <<LEDGER
-  failed     fm/feat-rebasedsibling ${short_base}  2026-09-07 14:14
-  running    fm/feat-rebasedsibling ${short_rebased}  2026-09-07 09:48
-LEDGER
-)"
-  out=$(run_crew_state "$d" rebasedsibling)
-  assert_equals "state: working · source: run-step · validating (background run)" "$out" \
-    "the older live rebased run is still this worktree's present, reported in full"
-  assert_not_contains "$out" "state: failed" "a terminal outcome that never happened must not be reported"
-  pass "a rebased live sibling older than the terminal row still outranks it"
-}
-
-# Negative control for the sibling rule above, mirroring
-# test_rebased_live_run_without_exact_anchor_binds_nothing for the
-# live-over-terminal path: the same rebased live row, but the terminal row that
-# is holding the answer sits at a DESCENDANT of this worktree's commit instead
-# of at the commit itself. The ordinary head rule binds that row, exact
-# equality does not, so the anchor stays unset and the unbindable live row has
-# nothing to prove it is this worktree's continuation. The terminal word stands.
-test_rebased_live_sibling_without_exact_anchor_leaves_terminal_standing() {
-  reset_fakes
-  local d base_head descendant_head rebased_head short_descendant short_rebased out
-  d=$(new_case rebased-sibling-no-anchor)
-  make_repo_on_branch "$d/wt" fm/feat-rebasedsiblingnoanchor
-  git -C "$d/wt" commit -q --allow-empty -m 'the work this crew submitted'
-  base_head=$(git -C "$d/wt" rev-parse HEAD)
-  git -C "$d/wt" commit -q --allow-empty -m 'the terminal run advanced the tip past it'
-  descendant_head=$(git -C "$d/wt" rev-parse HEAD)
-  git -C "$d/wt" reset -q --hard "$base_head"
-  git -C "$d/wt" checkout -q --detach "$(git -C "$d/wt" rev-list --max-parents=0 HEAD)"
-  git -C "$d/wt" commit -q --allow-empty -m 'upstream advanced'
-  git -C "$d/wt" commit -q --allow-empty -m 'the pipeline replayed the branch onto it'
-  rebased_head=$(git -C "$d/wt" rev-parse HEAD)
-  git -C "$d/wt" checkout -q fm/feat-rebasedsiblingnoanchor
-  # The divergence this case rests on: the terminal row binds by the ordinary
-  # head rule but not by equality, and the live row binds by neither.
-  [ "$descendant_head" != "$base_head" ] || fail "the terminal row must not sit at the worktree commit"
-  git -C "$d/wt" merge-base --is-ancestor "$base_head" "$descendant_head" \
-    || fail "the terminal row must still satisfy the ordinary head rule"
-  git -C "$d/wt" merge-base --is-ancestor "$base_head" "$rebased_head" \
-    && fail "the rebased head must not descend from the worktree HEAD"
-  git -C "$d/wt" merge-base --is-ancestor "$rebased_head" "$base_head" \
-    && fail "the worktree HEAD must not descend from the rebased head"
-  short_descendant=$(git -C "$d/wt" rev-parse --short=7 "$descendant_head")
-  short_rebased=$(git -C "$d/wt" rev-parse --short=7 "$rebased_head")
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/rebasedsiblingnoanchor.meta" "window=fm:fm-rebasedsiblingnoanchor" \
-    "worktree=$d/wt" "kind=ship"
-  FM_FAKE_RUN_HEAD="$descendant_head"
-  FM_FAKE_AXI_STATUS="$(run_failed fm/feat-rebasedsiblingnoanchor)"
-  FM_FAKE_RUNS_LIST="$(cat <<LEDGER
-  failed     fm/feat-rebasedsiblingnoanchor ${short_descendant}  2026-09-07 14:14
-  running    fm/feat-rebasedsiblingnoanchor ${short_rebased}  2026-09-07 09:48
-LEDGER
-)"
-  out=$(run_crew_state "$d" rebasedsiblingnoanchor)
-  assert_equals "state: failed · source: run-step · run failed" "$out" \
-    "without the exact-head anchor the unbindable live row displaces nothing"
-  pass "an unanchored rebased live sibling leaves the terminal word standing"
-}
-
 # Negative control for the rule above: recognizing a live row the head rule
 # cannot bind widened only WHICH rows reach the anchor, never the anchor
 # itself. Same rebased live row, but the immediately-older row sits at a
@@ -1439,6 +1343,50 @@ LEDGER
   assert_not_contains "$out" "state: failed" "and must not fall through to the older failed row"
   assert_contains "$out" "source: pane" "without the exact anchor the pane answers, not the runs rows"
   pass "a rebased live row without the exact anchor still binds nothing"
+}
+
+# The other way the head rule refuses to bind a row, which the anchor must NOT
+# rescue: the live newest row's head resolves here as a STRICT ANCESTOR of the
+# worktree HEAD. That run is not unprovable, it is superseded - local work
+# advanced past it outside the run - and even a perfect exact-head anchor
+# immediately behind it cannot make stale history the present. Only an absent
+# head or one on an unshared line of history reaches the anchor.
+test_ancestor_live_newest_row_is_never_anchored() {
+  reset_fakes
+  local d older_head base_head short_older short_base out gen
+  d=$(new_case ancestor-live-row)
+  make_repo_on_branch "$d/wt" fm/feat-ancestorlive
+  git -C "$d/wt" commit -q --allow-empty -m 'the commit the abandoned run was launched at'
+  older_head=$(git -C "$d/wt" rev-parse HEAD)
+  git -C "$d/wt" commit -q --allow-empty -m 'local work advanced past it outside the run'
+  base_head=$(git -C "$d/wt" rev-parse HEAD)
+  # The ancestry this case rests on: the live row's head resolves here and the
+  # worktree HEAD strictly descends from it, so it is superseded, not unknown.
+  [ "$older_head" != "$base_head" ] || fail "the live row must not sit at the worktree commit"
+  git -C "$d/wt" merge-base --is-ancestor "$older_head" "$base_head" \
+    || fail "the live row's head must be an ancestor of the worktree HEAD"
+  git -C "$d/wt" merge-base --is-ancestor "$base_head" "$older_head" \
+    && fail "the worktree HEAD must not be an ancestor of the live row's head"
+  short_older=$(git -C "$d/wt" rev-parse --short=7 "$older_head")
+  short_base=$(git -C "$d/wt" rev-parse --short=7 "$base_head")
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/ancestorlive.meta" "window=fm:fm-ancestorlive" \
+    "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<LEDGER
+  running    fm/other-crew aaaaaaa  2026-09-07 15:00
+  running    fm/feat-ancestorlive ${short_older}  2026-09-07 14:14
+  failed     fm/feat-ancestorlive ${short_base}  2026-09-07 09:48
+LEDGER
+)"
+  FM_FAKE_BUSY=1
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" ancestorlive)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" ancestorlive busy --gen "$gen" \
+    --source claude-hook --event user-prompt-submit
+  out=$(run_crew_state "$d" ancestorlive)
+  assert_equals "state: working · source: pane · harness busy (claude-hook)" "$out" \
+    "a superseded live row binds nothing, however perfect the anchor behind it"
+  pass "a strict-ancestor live newest row is never anchored"
 }
 
 # The class guard the anchor rests on: only a LIVE row the head rule cannot
@@ -2771,10 +2719,9 @@ test_terminal_corpse_loses_to_live_run_on_same_branch
 test_runs_list_live_row_outranks_newer_terminal_row
 test_unfetched_live_sibling_outranks_terminal_row_at_exact_head
 test_rebased_live_run_outranks_terminal_row_at_worktree_head
-test_rebased_live_sibling_older_than_terminal_row_still_wins
-test_rebased_live_sibling_without_exact_anchor_leaves_terminal_standing
 test_rebased_live_run_without_exact_anchor_binds_nothing
 test_diverged_terminal_newest_row_is_never_anchored
+test_ancestor_live_newest_row_is_never_anchored
 test_only_terminal_rows_keep_newest_first_precedence
 test_unknown_status_row_keeps_newest_first_precedence
 test_terminal_run_without_live_sibling_is_unchanged

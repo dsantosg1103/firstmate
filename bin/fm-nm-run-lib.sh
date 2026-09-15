@@ -189,22 +189,19 @@ fm_nm_run_is_pipeline_owned_active() {  # <toon-output>
 # with fm_nm_head_matches_worktree above, and it only ever replaces a TERMINAL
 # answer with a LIVE one: when the newest row binds but is terminal, the older
 # rows are scanned for a live row that ALSO binds to this worktree, and that
-# row's status word is printed instead. A live row binds by
-# fm_nm_head_matches_worktree. A live row that rule cannot bind - its head does
-# not resolve here (the routine shape: the pipeline's fix-round commits live
-# only in the gate repo), or it resolves on a line of history the worktree HEAD
-# does not share (the replayed-onto-an-advanced-upstream shape) - binds ONLY
-# when the held terminal row sits at EXACTLY the worktree HEAD, the same
-# exact-equality anchor the pipeline-continuation rule above requires, so
-# branch-name coincidence and other tasks' runs still never match. Both
-# unbindable shapes reach that one anchor for the same reason they do above: a
-# rebased head is exactly as unprovable as an unfetched one.
-# A terminal newest row is the corpse of a crashed attempt whenever a
+# row's status word is printed instead. A live row whose head resolves in this
+# copy binds by fm_nm_head_matches_worktree. A live row whose head does NOT
+# resolve (the routine shape: the pipeline's fix-round commits live only in the
+# gate repo) binds ONLY when the held terminal row sits at EXACTLY the worktree
+# HEAD - the same exact-equality anchor the pipeline-continuation rule above
+# requires, so branch-name coincidence and other tasks' runs still never
+# match. A terminal newest row is the corpse of a crashed attempt whenever a
 # live run for the same worktree is still on the ledger, so it is not the
-# present. Nothing else widens: a newest row that does not bind and is TERMINAL
-# or unclassifiable still ends the scan, a newest row that binds is still
-# answered as-is, the anchor is still exact head equality and nothing else, and
-# with no live sibling the newest terminal word is still what is printed.
+# present. Nothing else widens: the sibling scan is unchanged, a newest row
+# that does not bind still ends the scan unless it is LIVE and its head is
+# unprovable rather than superseded, a newest row that binds is still answered
+# as-is, the anchor is still exact head equality and nothing else, and with no
+# live sibling the newest terminal word is still what is printed.
 # Read-only: git reads resolve objects in place; custody never changes.
 fm_nm_runs_status_for_worktree() {  # <worktree> <branch> <runs-list-output> [expected-head]
   local wt=$1 branch=$2 list=$3 expected_head=${4:-}
@@ -250,11 +247,12 @@ fm_nm_runs_status_for_worktree() {  # <worktree> <branch> <runs-list-output> [ex
     if [ -n "$decided" ]; then
       # Live-over-terminal: the newest row bound to this worktree but is a
       # terminal record, so the older rows are searched for a live run that
-      # binds to the same worktree by the same head rule, or - when that rule
-      # cannot bind the row at all - by the exact-head anchor. Only such a row
+      # binds to the same worktree by the same head rule. Only such a row
       # displaces the held terminal word; anything else leaves it standing.
       [ "$(fm_nm_run_status_class "$st")" = live ] || continue
-      if ! fm_nm_head_matches_worktree "$wt" "$sha"; then
+      if [ -n "$(fm_nm_resolve_commit "$wt" "$sha")" ]; then
+        fm_nm_head_matches_worktree "$wt" "$sha" || continue
+      else
         [ -n "$decided_exact" ] || continue
       fi
       decided=$st
@@ -288,9 +286,17 @@ fm_nm_runs_status_for_worktree() {  # <worktree> <branch> <runs-list-output> [ex
       fi
       break
     fi
-    # The head rule could not bind this row, whether its head is absent from
-    # this copy or resolves on a line of history the worktree HEAD does not
-    # share. Only a LIVE row is still recognizable, through the anchor below.
+    # The head rule could not bind this row. A head that resolves as a strict
+    # ANCESTOR of the worktree HEAD is not unprovable, it is superseded: local
+    # work advanced past it outside the run (the case fm_nm_head_matches_worktree
+    # rejects on purpose), and no anchor can turn stale history into the present.
+    if [ -n "$row_full" ] \
+      && git -C "$wt" merge-base --is-ancestor "$row_full" "$local_full" 2>/dev/null; then
+      break
+    fi
+    # What remains is genuinely unprovable: a head absent from this copy, or one
+    # on a line of history the worktree HEAD does not share. Only a LIVE row is
+    # still recognizable, through the anchor below.
     [ "$(fm_nm_run_status_class "$st")" = live ] || break
     pending_st=$st
   done <<< "$list"
