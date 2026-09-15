@@ -166,19 +166,25 @@ fm_nm_run_is_pipeline_owned_active() {  # <toon-output>
 # row alone decides; older rows are history and never answer for the present:
 #   - newest row's head resolves and matches the worktree (fm_nm_head_matches_worktree):
 #     its status word
-#   - newest row's head resolves but does not match: nothing (a newer run that
-#     is not this worktree's makes every older row stale history)
-#   - newest row's head does not resolve in this copy (the pipeline committed
-#     its fix round in its own checkout and the task copy never fetched it):
-#     recognized ONLY as a provable pipeline-owned continuation of the
-#     submitted head, which requires ALL of: the row is ACTIVE (status
-#     running), and the immediately older row for the SAME branch resolves to
-#     EXACTLY the worktree HEAD. The pipeline's own ledger then proves an
-#     unbroken run sequence from a run that ended at the submitted head to an
-#     active run on the same branch - the anchored active row's status word is
-#     printed. Anything else (no anchor row, an anchor that is merely an
-#     ancestor, a terminal unresolvable row) prints nothing, so branch-name
-#     coincidence, arbitrary remote state, and other tasks' runs never match.
+#   - newest row's head does not bind - either it does not resolve in this copy
+#     (the pipeline committed its fix round in its own checkout and the task
+#     copy never fetched it) or it resolves on a line of history the worktree
+#     HEAD does not share (the pipeline replayed the branch onto an advanced
+#     upstream, so neither commit descends from the other):
+#     a TERMINAL or unclassifiable row prints nothing, because a newer run that
+#     is not this worktree's makes every older row stale history. An ACTIVE row
+#     is recognized as a provable pipeline-owned continuation of the submitted
+#     head, which additionally requires the immediately older row for the SAME
+#     branch to resolve to EXACTLY the worktree HEAD. The pipeline's own ledger
+#     then proves an unbroken run sequence from a run that ended at the
+#     submitted head to an active run on the same branch - the anchored active
+#     row's status word is printed. Anything else (no anchor row, an anchor
+#     that is merely an ancestor or merely a descendant) prints nothing, so
+#     branch-name coincidence, arbitrary remote state, and other tasks' runs
+#     never match. Both unbindable shapes reach the SAME anchor because a
+#     rebased head is exactly as unprovable as an unfetched one, and treating
+#     only the unfetched one that way is what let a dead run report a live
+#     task as failed (nutrifam-cerrar-allow-authenticated, 2026-09-07).
 # The one exception to newest-row-decides is the live-over-terminal rule stated
 # with fm_nm_head_matches_worktree above, and it only ever replaces a TERMINAL
 # answer with a LIVE one: when the newest row binds but is terminal, the older
@@ -269,19 +275,20 @@ fm_nm_runs_status_for_worktree() {  # <worktree> <branch> <runs-list-output> [ex
       esac
     fi
     row_full=$(fm_nm_resolve_commit "$wt" "$sha")
-    if [ -n "$row_full" ]; then
-      if fm_nm_head_matches_worktree "$wt" "$sha"; then
-        decided=$st
-        # A live or unclassifiable word is this worktree's current answer and
-        # ends the scan; only a terminal one keeps looking for a live sibling.
-        if [ "$(fm_nm_run_status_class "$st")" = terminal ]; then
-          [ "$row_full" != "$local_full" ] || decided_exact=1
-          continue
-        fi
+    if [ -n "$row_full" ] && fm_nm_head_matches_worktree "$wt" "$sha"; then
+      decided=$st
+      # A live or unclassifiable word is this worktree's current answer and
+      # ends the scan; only a terminal one keeps looking for a live sibling.
+      if [ "$(fm_nm_run_status_class "$st")" = terminal ]; then
+        [ "$row_full" != "$local_full" ] || decided_exact=1
+        continue
       fi
       break
     fi
-    [ "$st" = running ] || break
+    # The head rule could not bind this row, whether its head is absent from
+    # this copy or resolves on a line of history the worktree HEAD does not
+    # share. Only a LIVE row is still recognizable, through the anchor below.
+    [ "$(fm_nm_run_status_class "$st")" = live ] || break
     pending_st=$st
   done <<< "$list"
   printf '%s' "$decided"
