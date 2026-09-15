@@ -1342,6 +1342,55 @@ LEDGER
   pass "a rebased live sibling older than the terminal row still outranks it"
 }
 
+# Negative control for the sibling rule above, mirroring
+# test_rebased_live_run_without_exact_anchor_binds_nothing for the
+# live-over-terminal path: the same rebased live row, but the terminal row that
+# is holding the answer sits at a DESCENDANT of this worktree's commit instead
+# of at the commit itself. The ordinary head rule binds that row, exact
+# equality does not, so the anchor stays unset and the unbindable live row has
+# nothing to prove it is this worktree's continuation. The terminal word stands.
+test_rebased_live_sibling_without_exact_anchor_leaves_terminal_standing() {
+  reset_fakes
+  local d base_head descendant_head rebased_head short_descendant short_rebased out
+  d=$(new_case rebased-sibling-no-anchor)
+  make_repo_on_branch "$d/wt" fm/feat-rebasedsiblingnoanchor
+  git -C "$d/wt" commit -q --allow-empty -m 'the work this crew submitted'
+  base_head=$(git -C "$d/wt" rev-parse HEAD)
+  git -C "$d/wt" commit -q --allow-empty -m 'the terminal run advanced the tip past it'
+  descendant_head=$(git -C "$d/wt" rev-parse HEAD)
+  git -C "$d/wt" reset -q --hard "$base_head"
+  git -C "$d/wt" checkout -q --detach "$(git -C "$d/wt" rev-list --max-parents=0 HEAD)"
+  git -C "$d/wt" commit -q --allow-empty -m 'upstream advanced'
+  git -C "$d/wt" commit -q --allow-empty -m 'the pipeline replayed the branch onto it'
+  rebased_head=$(git -C "$d/wt" rev-parse HEAD)
+  git -C "$d/wt" checkout -q fm/feat-rebasedsiblingnoanchor
+  # The divergence this case rests on: the terminal row binds by the ordinary
+  # head rule but not by equality, and the live row binds by neither.
+  [ "$descendant_head" != "$base_head" ] || fail "the terminal row must not sit at the worktree commit"
+  git -C "$d/wt" merge-base --is-ancestor "$base_head" "$descendant_head" \
+    || fail "the terminal row must still satisfy the ordinary head rule"
+  git -C "$d/wt" merge-base --is-ancestor "$base_head" "$rebased_head" \
+    && fail "the rebased head must not descend from the worktree HEAD"
+  git -C "$d/wt" merge-base --is-ancestor "$rebased_head" "$base_head" \
+    && fail "the worktree HEAD must not descend from the rebased head"
+  short_descendant=$(git -C "$d/wt" rev-parse --short=7 "$descendant_head")
+  short_rebased=$(git -C "$d/wt" rev-parse --short=7 "$rebased_head")
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/rebasedsiblingnoanchor.meta" "window=fm:fm-rebasedsiblingnoanchor" \
+    "worktree=$d/wt" "kind=ship"
+  FM_FAKE_RUN_HEAD="$descendant_head"
+  FM_FAKE_AXI_STATUS="$(run_failed fm/feat-rebasedsiblingnoanchor)"
+  FM_FAKE_RUNS_LIST="$(cat <<LEDGER
+  failed     fm/feat-rebasedsiblingnoanchor ${short_descendant}  2026-09-07 14:14
+  running    fm/feat-rebasedsiblingnoanchor ${short_rebased}  2026-09-07 09:48
+LEDGER
+)"
+  out=$(run_crew_state "$d" rebasedsiblingnoanchor)
+  assert_equals "state: failed · source: run-step · run failed" "$out" \
+    "without the exact-head anchor the unbindable live row displaces nothing"
+  pass "an unanchored rebased live sibling leaves the terminal word standing"
+}
+
 # Negative control for the rule above: recognizing a live row the head rule
 # cannot bind widened only WHICH rows reach the anchor, never the anchor
 # itself. Same rebased live row, but the immediately-older row sits at a
@@ -2670,6 +2719,7 @@ test_runs_list_live_row_outranks_newer_terminal_row
 test_unfetched_live_sibling_outranks_terminal_row_at_exact_head
 test_rebased_live_run_outranks_terminal_row_at_worktree_head
 test_rebased_live_sibling_older_than_terminal_row_still_wins
+test_rebased_live_sibling_without_exact_anchor_leaves_terminal_standing
 test_rebased_live_run_without_exact_anchor_binds_nothing
 test_only_terminal_rows_keep_newest_first_precedence
 test_unknown_status_row_keeps_newest_first_precedence

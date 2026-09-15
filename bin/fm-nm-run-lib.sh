@@ -201,10 +201,10 @@ fm_nm_run_is_pipeline_owned_active() {  # <toon-output>
 # rebased head is exactly as unprovable as an unfetched one.
 # A terminal newest row is the corpse of a crashed attempt whenever a
 # live run for the same worktree is still on the ledger, so it is not the
-# present. Nothing else widens: a newest row that does not bind still ends the
-# scan, a newest row whose class is live or unclassifiable is still answered
-# as-is, the anchored pipeline-continuation path is untouched, and with no live
-# sibling the newest terminal word is still what is printed.
+# present. Nothing else widens: a newest row that does not bind and is TERMINAL
+# or unclassifiable still ends the scan, a newest row that binds is still
+# answered as-is, the anchor is still exact head equality and nothing else, and
+# with no live sibling the newest terminal word is still what is printed.
 # Read-only: git reads resolve objects in place; custody never changes.
 fm_nm_runs_status_for_worktree() {  # <worktree> <branch> <runs-list-output> [expected-head]
   local wt=$1 branch=$2 list=$3 expected_head=${4:-}
