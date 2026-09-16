@@ -1,0 +1,8 @@
+ok - an unfetched live sibling outranks a terminal row at the worktree's exact commit
+ok - a live run whose head was rebased outranks a terminal row at the worktree's commit
+ok - a rebased live row without the exact anchor still binds nothing
+ok - a diverged terminal newest row is never anchored by the row behind it
+ok - a strict-ancestor live newest row is never anchored
+ok - a genuinely failed run with no later run is not hidden
+ok - active fix round with an unfetched pipeline head reads working
+all fm-crew-state tests passed

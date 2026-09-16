@@ -1,0 +1,13 @@
+=== G1 strict-ancestor live newest row (head bfd3c97 is an ancestor of HEAD 6683856) ===
+  pre-fix : state: working · source: pane · harness busy (claude-hook)
+  fixed   : state: working · source: pane · harness busy (claude-hook)
+
+=== G2 diverged TERMINAL newest row + perfect exact-head anchor behind it ===
+  fixed   : state: working · source: pane · harness busy (claude-hook)
+
+=== G3 rebased live row whose anchor is a DESCENDANT, not the exact commit ===
+  fixed   : state: working · source: pane · harness busy (claude-hook)
+
+=== G4 terminal row at the worktree commit, diverged live sibling behind it ===
+  pre-fix : state: failed · source: run-step · run failed
+  fixed   : state: failed · source: run-step · run failed

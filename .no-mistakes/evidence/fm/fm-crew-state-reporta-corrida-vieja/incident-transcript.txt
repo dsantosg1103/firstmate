@@ -1,0 +1,19 @@
+worktree HEAD (submitted, where the DEAD run died): 042a5e4da9935de7e8e50deb00e6fdc9fa5369ed
+live run head  (rebased onto advanced upstream):    56d9ecf840e33e1909606e0b48c7982dc8b859d8
+neither commit is an ancestor of the other: confirmed
+
+=== S1: the incident shape, PRE-FIX product (base bdcacb9fed45266ec4476b95d2290794cfa501bb) ===
+state: failed · source: run-step · run failed
+
+=== S1: the incident shape, FIXED product (HEAD) ===
+state: working · source: run-step · validating (background run)
+
+=== S2: the watcher (bin/fm-inactive-reconcile.sh scan) over the same shape ===
+scan exit: 0
+wake/outcome records emitted: []
+
+=== S3 control: the SAME dead run with no live successor still reports and wakes ===
+state: failed · source: run-step · run failed
+actionable: inactive terminal outcome awaiting captain presentation: child=nutrifamcerrar state=failed
+scan exit: 0
+wake/outcome records emitted: [inactive-outcome:dd0bb0d1524ff1478b40c4f872232aa6	inactive state=failed ]
