@@ -322,9 +322,11 @@ fm_nm_runs_decision_for_worktree() {  # <worktree> <branch> <runs-list-output> [
 # so branch $2 AND recorded head $3 must both match and the row's status word
 # must still classify live. The head comparison is the ledger's own abbreviated
 # form (either identity a prefix of the other), because the two surfaces
-# abbreviate independently. Column positions come from the table's own header
-# rather than a fixed order, and every extracted field is charset-validated, so
-# a reshaped or malformed table yields nothing instead of a wrong id.
+# abbreviate independently, and an empty or non-hex head column is no head at
+# all rather than a match against everything. Column positions come from the
+# table's own header rather than a fixed order, branch and status are compared
+# against exact expected words, and the head and the id are charset-validated,
+# so a reshaped or malformed table yields nothing instead of a wrong id.
 fm_nm_home_view_run_id() {  # <toon-output> <branch> <row-head>
   local out=$1 branch=$2 head=$3 id
   [ -n "$out" ] && [ -n "$branch" ] && [ -n "$head" ] || return 0
@@ -351,6 +353,7 @@ fm_nm_home_view_run_id() {  # <toon-output> <branch> <row-head>
       if (unquote(f[branch_col]) != want_branch) next
       if (unquote(f[status_col]) != "running") next
       row_head = unquote(f[head_col])
+      if (row_head == "" || row_head ~ /[^A-Fa-f0-9]/) next
       if (index(row_head, want_head) != 1 && index(want_head, row_head) != 1) next
       print unquote(f[id_col])
       exit

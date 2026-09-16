@@ -1431,6 +1431,38 @@ LEDGER
   pass "the home view is read only for the attributed run's id"
 }
 
+# The degenerate form of the same boundary: a table row for this branch whose
+# head column is EMPTY. It records no head at all, so it can never be the row
+# the ledger attributed, and an empty string must not read as a head that
+# matches everything.
+test_home_view_row_without_a_head_is_never_inspected() {
+  reset_fakes
+  local d base_head short_base unfetched out
+  d=$(new_case parked-live-empty-head)
+  make_repo_on_branch "$d/wt" fm/feat-emptyhead
+  base_head=$(git -C "$d/wt" rev-parse HEAD)
+  short_base=$(git -C "$d/wt" rev-parse --short=7 "$base_head")
+  unfetched=0123abc
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/emptyhead.meta" "window=fm:fm-emptyhead" \
+    "worktree=$d/wt" "kind=ship"
+  FM_FAKE_RUN_HEAD="$base_head"
+  FM_FAKE_AXI_STATUS="$(run_failed fm/feat-emptyhead)"
+  FM_FAKE_RUNS_LIST="$(cat <<LEDGER
+  failed     fm/feat-emptyhead ${short_base}  2026-09-15 11:20
+  running    fm/feat-emptyhead ${unfetched}  2026-09-15 10:05
+LEDGER
+)"
+  FM_FAKE_AXI_HOME="$(axi_home_view \
+    "\"01NOHEAD\",fm/feat-emptyhead,running,\"\",\"\"")"
+  FM_FAKE_AXI_RUN_ID=01NOHEAD
+  FM_FAKE_AXI_STATUS_RUN="$(run_parked_live_sibling fm/feat-emptyhead "$unfetched" 01NOHEAD)"
+  out=$(run_crew_state "$d" emptyhead)
+  assert_equals "state: working · source: run-step · validating (background run)" "$out" \
+    "a table row carrying no head must not be inspected"
+  pass "a headless table row is never taken as the attributed run"
+}
+
 # The same boundary on the inspection's ANSWER. The id binds, but the run
 # detail that comes back names another branch (a reused or recycled id), so it
 # is not this worktree's run and must not be adopted - the coarse word stands.
@@ -2999,6 +3031,7 @@ test_unfetched_live_sibling_outranks_terminal_row_at_exact_head
 test_rebased_live_run_outranks_terminal_row_at_worktree_head
 test_parked_live_sibling_reports_its_gate_not_working
 test_home_view_row_with_another_head_is_never_inspected
+test_home_view_row_without_a_head_is_never_inspected
 test_inspected_run_for_another_branch_is_rejected
 test_inspected_terminal_run_never_overrides_the_live_word
 test_other_branch_answer_still_reports_the_live_gate
