@@ -5,7 +5,7 @@
 # fm-crew-state.sh (read-only current-state reporting) and fm-teardown.sh
 # (pre-teardown run abort, see its "Fix 1" header comment). Both bind a run
 # by strict branch-and-head identity first, and both then recognize a provable
-# pipeline-owned continuation through fm_nm_runs_status_for_worktree below:
+# pipeline-owned continuation through fm_nm_runs_decision_for_worktree below:
 # crew-state for an ACTIVE run, so a fix round never reads as an older failed
 # run, and teardown for a run PARKED at a gate, so cleanup concludes it
 # instead of orphaning it. Getting this wrong in either
@@ -75,7 +75,7 @@ fm_nm_resolve_commit() {  # <worktree> <sha-ish>
 #   - run head is a strict ancestor of worktree HEAD, or diverged: no match
 #     (local work advanced outside the run, or the branch tip was rewritten)
 # A run head whose object this copy does not have cannot be proven here and is
-# rejected; fm_nm_runs_status_for_worktree below owns the one ledger-anchored
+# rejected; fm_nm_runs_decision_for_worktree below owns the one ledger-anchored
 # recognition for that case, and fm_nm_run_is_pipeline_owned_active below
 # carries the custody exemption: a live run whose pipeline currently owns the
 # branch binds without head equality.
@@ -90,7 +90,7 @@ fm_nm_resolve_commit() {  # <worktree> <sha-ish>
 # match rule each one used, because a terminal run can be the corpse of a
 # crashed attempt while the live one is what is actually validating this code.
 # Within one liveness class the selecting caller's existing precedence is
-# unchanged - for the runs ledger, fm_nm_runs_status_for_worktree's
+# unchanged - for the runs ledger, fm_nm_runs_decision_for_worktree's
 # newest-row-decides rule below.
 # fm_nm_run_status_class next classifies a recorded status word for that
 # comparison, and a word it cannot classify keeps the caller's own precedence

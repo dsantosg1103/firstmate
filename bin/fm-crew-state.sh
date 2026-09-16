@@ -45,7 +45,7 @@
 #      the branch's ACTIVE newest ledger row, anchored by the row immediately
 #      before it having ended at exactly this worktree's head - so an active fix
 #      round never reads as an older failed run (rule owned by
-#      fm_nm_runs_status_for_worktree in bin/fm-nm-run-lib.sh).
+#      fm_nm_runs_decision_for_worktree in bin/fm-nm-run-lib.sh).
 #      More than one recorded run can bind to this worktree at once, and
 #      bin/fm-nm-run-lib.sh also owns which of them wins: a LIVE run always
 #      outranks a terminal one, so a terminal answer here is provisional until
@@ -126,7 +126,7 @@ case "$NM_TIMEOUT" in ''|*[!0-9]*) NM_TIMEOUT=10 ;; esac
 # ledger has already decided.
 NM_INSPECT_TIMEOUT=3
 # How many of the most recent `no-mistakes runs` rows each ledger read
-# (fm_nm_runs_status_for_worktree in bin/fm-nm-run-lib.sh) scans, whether it is
+# (fm_nm_runs_decision_for_worktree in bin/fm-nm-run-lib.sh) scans, whether it is
 # the cross-branch fallback or the live-sibling probe behind a terminal `axi
 # status` answer (docs/configuration.md owns the setting). Generous enough to
 # still find a branch's own run on a busy multi-crew fleet without listing the
@@ -540,7 +540,7 @@ nm_ci_checks_state() {
 # run-listing command is the top-level `no-mistakes runs` (the `axi` surface
 # has no runs-listing subcommand; tests/fm-crew-state.test.sh owns the
 # 2026-07-02 dead-code incident history this fallback replaced).
-# fm_nm_runs_status_for_worktree in bin/fm-nm-run-lib.sh is the ONE owner of
+# fm_nm_runs_decision_for_worktree in bin/fm-nm-run-lib.sh is the ONE owner of
 # the ledger format, the newest-row-decides rule, its live-over-terminal
 # exception, and the anchored pipeline-continuation recognition
 # (model-routing-benchmark-hardening: an active fix round whose head object the
