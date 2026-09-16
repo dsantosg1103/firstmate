@@ -1,0 +1,104 @@
+# Live drive: a crew whose no-mistakes run is PARKED at an unanswered gate
+
+Isolated FM_HOME with a real git repo on fm/feat-parkedlive and a stand-in
+no-mistakes CLI reproducing the 2026-09-15 incident shapes:
+  - bare 'axi status'  -> the PREVIOUS run, failed, at this worktree's exact commit
+  - 'runs' ledger      -> newest row: running, head 0123abc (never fetched here), no id column
+  - 'axi' home view    -> the id-bearing surface: 01LIVE for this branch at 0123abc
+  - 'axi status --run 01LIVE' -> running, awaiting_agent: parked 23m57s, gate step review,
+                                 2 findings, one of them ask-user
+
+$ no-mistakes runs --limit 200
+  failed     fm/feat-parkedlive 31e6c7e  2026-09-15 11:20
+  running    fm/feat-parkedlive 0123abc  2026-09-15 10:05
+
+$ no-mistakes axi status --run 01LIVE
+run:
+  id: "01LIVE"
+  branch: fm/feat-parkedlive
+  status: running
+  awaiting_agent: parked 23m57s
+  head: 0123abc
+  pr: ""
+  findings: "2 awaiting, 1 auto-fix, 1 info"
+  steps[3]{step,status,findings,duration_ms}:
+    intent,completed,0,10
+    review,fix_review,2,1437000
+    test,pending,0,0
+gate:
+  step: review
+  status: fix_review
+  summary: "two findings await a decision"
+  findings[2]{id,severity,file,action,description}:
+    f1,warning,a.go,auto-fix,"ignored error"
+    f2,error,b.go,ask-user,"changes product behavior"
+
+================ BEFORE the change (base bdcacb9) ================
+$ bin/fm-crew-state.sh parkedlive
+state: working · source: run-step · validating (background run)
+
+$ bin/fm-fleet-snapshot.sh --secondmate-home-summary   (captain waiting-list classification)
+{
+  "holds": [],
+  "active_children": [
+    {
+      "id": "parkedlive",
+      "kind": "ship",
+      "state": "working",
+      "repo": "alpha",
+      "name": "Crew validating a change",
+      "source": "run-step",
+      "doing": "validating (background run)"
+    }
+  ],
+  "active_count": 1
+}
+
+$ bin/fm-fleet-view.sh
+# Fleet View
+
+Schema: fm-fleet-snapshot.v1
+Home: /tmp/fmE2E/home-after
+
+## Under Way
+| ID | Current | Kind | Repo/Project | Backend | Endpoint | Artifact | Path | Watch / return channel |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| parkedlive | working / run-step | ship | alpha | tmux | present | - | /tmp/fmE2E/home-after/projects/parkedlive | bin/fm-peek.sh fm-parkedlive |
+
+## Queued
+No queued backlog records found.
+
+================ AFTER the change (target 4c232d7) ================
+$ bin/fm-crew-state.sh parkedlive
+state: parked · source: run-step · parked at review: 2 finding(s) (ask-user: authority decision)
+
+$ bin/fm-fleet-snapshot.sh --secondmate-home-summary   (captain waiting-list classification)
+{
+  "holds": [
+    {
+      "id": "parkedlive",
+      "title": "parkedlive",
+      "blocked_by": null,
+      "blocked_by_ids": [],
+      "unresolved_blocker_ids": [],
+      "reason": "parked at review: 2 finding(s) (ask-user: authority decision)",
+      "source": "child-state"
+    }
+  ],
+  "active_children": [],
+  "active_count": 0
+}
+
+$ bin/fm-fleet-view.sh
+# Fleet View
+
+Schema: fm-fleet-snapshot.v1
+Home: /tmp/fmE2E/home-after
+
+## Under Way
+| ID | Current | Kind | Repo/Project | Backend | Endpoint | Artifact | Path | Watch / return channel |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| parkedlive | parked / run-step | ship | alpha | tmux | present | - | /tmp/fmE2E/home-after/projects/parkedlive | bin/fm-peek.sh fm-parkedlive |
+
+## Queued
+No queued backlog records found.

@@ -1,0 +1,36 @@
+# Adversarial drives: every path that cannot prove the gate must keep the
+# coarse ledger word the change already had, never a wrong one.
+
+## inspected run names ANOTHER branch (recycled id)
+$ bin/fm-crew-state.sh parkedlive
+state: working · source: run-step · validating (background run)
+
+## inspected run answers TERMINAL (finished between the two reads)
+$ bin/fm-crew-state.sh parkedlive
+state: working · source: run-step · validating (background run)
+
+## the id-bearing row carries a DIFFERENT head than the attributed row
+$ bin/fm-crew-state.sh parkedlive
+state: working · source: run-step · validating (background run)
+
+## accepted limitation: the live run sits past the ten id-bearing rows
+$ bin/fm-crew-state.sh parkedlive
+state: working · source: run-step · validating (background run)
+
+## both enrichment calls hang 30s (NM_INSPECT_TIMEOUT=3 each)
+   per-crew snapshot budget FM_SNAPSHOT_CREW_STATE_TIMEOUT is 10s;
+   the crew must degrade to the coarse word, not to 'child current state unavailable'.
+$ bin/fm-fleet-snapshot.sh --secondmate-home-summary
+{"holds":[],"active":[{"id":"parkedlive","state":"working","doing":"validating (background run)"}]}
+
+$ time bin/fm-crew-state.sh parkedlive        # the read the 10s per-crew bound applies to
+single crew-state read: 5.09s
+single crew-state read: 5.18s
+single crew-state read: 5.10s
+-> both enrichment calls hung: 5.1s per crew read, inside the 10s per-crew budget,
+   and the crew keeps the coarse ledger word instead of folding to
+   "child current state unavailable".
+
+Normal-path cost of the two extra calls, same fixture, 3 reads averaged:
+  base bdcacb9 : 1.28s per read
+  target 4c232d7: 1.91s per read
