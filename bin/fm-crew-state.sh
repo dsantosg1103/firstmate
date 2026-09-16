@@ -120,9 +120,11 @@ META=${FM_CREW_STATE_META_OVERRIDE:-"$STATE/$ID.meta"}
 LOG=${FM_CREW_STATE_STATUS_OVERRIDE:-"$STATE/$ID.status"}
 NM_TIMEOUT=${FM_CREW_STATE_NM_TIMEOUT:-10}
 case "$NM_TIMEOUT" in ''|*[!0-9]*) NM_TIMEOUT=10 ;; esac
-# Bound for the best-effort home-view call alone (nm_inspect_live_run below),
-# deliberately far shorter than the authoritative reads it enriches.
-NM_HOME_VIEW_TIMEOUT=3
+# Bound for the best-effort calls of nm_inspect_live_run below - the home view
+# and the per-run inspection - deliberately far shorter than the authoritative
+# reads they enrich, because neither can do more than add detail to a word the
+# ledger has already decided.
+NM_INSPECT_TIMEOUT=3
 # How many of the most recent `no-mistakes runs` rows each ledger read
 # (fm_nm_runs_status_for_worktree in bin/fm-nm-run-lib.sh) scans, whether it is
 # the cross-branch fallback or the live-sibling probe behind a terminal `axi
@@ -581,18 +583,24 @@ nm_run_head_matches_worktree() {
 nm_inspect_live_run() {  # <ledger-row-head>
   local row_head=$1 id detail
   [ -n "$row_head" ] || return 1
+  # Both id-bearing surfaces expose only the ten most recently created runs for
+  # the repo, while the ledger that attributed this run scans far more rows, so
+  # a run parked longer than ten newer runs take to appear has no recoverable
+  # id and keeps the coarse word. No id-bearing listing accepts a caller-chosen
+  # limit, so closing this needs an upstream surface that does, or reading the
+  # tool's internal state directly.
   id=$(fm_nm_home_view_run_id "$RUN_OUT" "$CREW_BRANCH" "$row_head")
-  # The home view is the one call here that is pure enrichment, and it is the
-  # expensive one: the installed CLI runs its own network update check on every
-  # invocation (~0.7s warm, and unbounded by anything local when the network is
-  # slow), while every other call in this path is ~0.03s. It gets a short bound
-  # of its own, because missing the gate detail costs one coarse word while a
-  # slow enrichment would slow every supervision read that reaches for it.
+  # Both calls below are pure enrichment, and both are subprocesses of the
+  # installed CLI, which runs its own network update check on every invocation
+  # (unbounded by anything local when the network is slow). They share the short
+  # bound above, because missing the gate detail costs one coarse word the
+  # ledger already proved, while a slow enrichment would slow every supervision
+  # read that reaches for it.
   [ -n "$id" ] \
     || id=$(fm_nm_home_view_run_id \
-      "$(fm_nm_run "$WT" "$NM_HOME_VIEW_TIMEOUT" axi)" "$CREW_BRANCH" "$row_head")
+      "$(fm_nm_run "$WT" "$NM_INSPECT_TIMEOUT" axi)" "$CREW_BRANCH" "$row_head")
   [ -n "$id" ] || return 1
-  detail=$(nm_run axi status --run "$id")
+  detail=$(fm_nm_run "$WT" "$NM_INSPECT_TIMEOUT" axi status --run "$id")
   [ -n "$detail" ] || return 1
   # `axi status --run` renders another branch's run under `other_branch_run:`,
   # which never answers for this worktree, and a terminal answer must never
