@@ -120,6 +120,9 @@ META=${FM_CREW_STATE_META_OVERRIDE:-"$STATE/$ID.meta"}
 LOG=${FM_CREW_STATE_STATUS_OVERRIDE:-"$STATE/$ID.status"}
 NM_TIMEOUT=${FM_CREW_STATE_NM_TIMEOUT:-10}
 case "$NM_TIMEOUT" in ''|*[!0-9]*) NM_TIMEOUT=10 ;; esac
+# Bound for the best-effort home-view call alone (nm_inspect_live_run below),
+# deliberately far shorter than the authoritative reads it enriches.
+NM_HOME_VIEW_TIMEOUT=3
 # How many of the most recent `no-mistakes runs` rows each ledger read
 # (fm_nm_runs_status_for_worktree in bin/fm-nm-run-lib.sh) scans, whether it is
 # the cross-branch fallback or the live-sibling probe behind a terminal `axi
@@ -560,6 +563,49 @@ nm_run_head_matches_worktree() {
   fm_nm_head_matches_worktree "$WT" "$run_head"
 }
 
+# Recover the live run's own step and gate detail once the ledger has attributed
+# that run to this worktree. The ledger has no run id column
+# (bin/fm-nm-run-lib.sh), so the coarse path below can only report the status
+# WORD `running`, which reads as work in progress even when the run is sitting
+# at a gate nobody has answered: the 2026-09-15 incident reported a run parked
+# 23m57s at fix_review with an ask-user finding as `validating`, and
+# bin/fm-fleet-snapshot.sh counts `working` as active work while only
+# `parked`/`paused`/`blocked` reach its waiting list, so the crew could have sat
+# there indefinitely with nobody told a decision was owed. The id comes from the
+# recent-runs table of the answer already in hand when it carries one, else from
+# one home-view call, and only then is that ONE run inspected by id.
+# This recovers detail for a run the ledger already attributed; it never widens
+# attribution. Every step must prove itself - the id must name the attributed
+# row, the answer must be that id, on this crew's branch, and still live - and
+# anything unproven leaves the coarse word exactly as the ledger decided it.
+nm_inspect_live_run() {  # <ledger-row-head>
+  local row_head=$1 id detail
+  [ -n "$row_head" ] || return 1
+  id=$(fm_nm_home_view_run_id "$RUN_OUT" "$CREW_BRANCH" "$row_head")
+  # The home view is the one call here that is pure enrichment, and it is the
+  # expensive one: the installed CLI runs its own network update check on every
+  # invocation (~0.7s warm, and unbounded by anything local when the network is
+  # slow), while every other call in this path is ~0.03s. It gets a short bound
+  # of its own, because missing the gate detail costs one coarse word while a
+  # slow enrichment would slow every supervision read that reaches for it.
+  [ -n "$id" ] \
+    || id=$(fm_nm_home_view_run_id \
+      "$(fm_nm_run "$WT" "$NM_HOME_VIEW_TIMEOUT" axi)" "$CREW_BRANCH" "$row_head")
+  [ -n "$id" ] || return 1
+  detail=$(nm_run axi status --run "$id")
+  [ -n "$detail" ] || return 1
+  # `axi status --run` renders another branch's run under `other_branch_run:`,
+  # which never answers for this worktree, and a terminal answer must never
+  # displace the live word the ledger proved: manufacturing a terminal verdict
+  # out of a second query is the same false-failure class the live-over-terminal
+  # rule exists to prevent.
+  [ "$(fm_nm_strip_quotes "$(fm_nm_field "$detail" id)")" = "$id" ] || return 1
+  [ "$(fm_nm_strip_quotes "$(fm_nm_field "$detail" branch)")" = "$CREW_BRANCH" ] || return 1
+  fm_nm_run_is_active "$detail" || return 1
+  RUN_OUT=$detail
+  RUN_SOURCE=full
+}
+
 HAVE_RUN=0
 # RUN_SOURCE distinguishes the two ways HAVE_RUN=1 can happen: "full" means
 # $RUN_OUT is real `axi status` TOON with step/gate detail (including a
@@ -591,10 +637,15 @@ if [ "$KIND" = ship ] && [ -n "$CREW_BRANCH" ] && command -v no-mistakes >/dev/n
       # displaces it: a terminal run with no live sibling keeps its full
       # `axi status` step and gate detail rather than degrading to the ledger.
       if ! fm_nm_run_is_active "$RUN_OUT"; then
-        live_status=$(fm_nm_runs_status_for_worktree "$WT" "$CREW_BRANCH" "$(nm_runs_list)")
+        live_decision=$(fm_nm_runs_decision_for_worktree "$WT" "$CREW_BRANCH" "$(nm_runs_list)")
+        live_status=${live_decision%% *}
         if [ "$(fm_nm_run_status_class "$live_status")" = live ]; then
           COARSE_STATUS=$live_status
           RUN_SOURCE=coarse
+          # The ledger proved the live run; its gate is only readable by
+          # inspecting that run itself, and failing to reach it keeps the
+          # coarse word.
+          nm_inspect_live_run "${live_decision#* }" || true
         fi
       fi
     else
@@ -604,15 +655,22 @@ if [ "$KIND" = ship ] && [ -n "$CREW_BRANCH" ] && command -v no-mistakes >/dev/n
       # `[ -n "$RUN_OUT" ]`: an empty/timed-out primary call means the CLI
       # itself did not respond, so retrying it immediately with a second
       # bounded call would just double the wait for no better answer.
-      COARSE_STATUS=$(fm_nm_runs_status_for_worktree "$WT" "$CREW_BRANCH" "$(nm_runs_list)")
+      coarse_decision=$(fm_nm_runs_decision_for_worktree "$WT" "$CREW_BRANCH" "$(nm_runs_list)")
+      COARSE_STATUS=${coarse_decision%% *}
       if [ -n "$COARSE_STATUS" ]; then
         HAVE_RUN=1
         # A branch-matching answer the strict rule rejected is this branch's
         # own current run once the ledger proves the pipeline-owned
         # continuation, so its axi TOON is the authoritative run detail
         # (RUN_SOURCE stays full); only a foreign-branch answer leaves
-        # coarse status-word detail.
-        [ "$run_branch" = "$CREW_BRANCH" ] || RUN_SOURCE=coarse
+        # coarse status-word detail, and a live one is inspected for its own
+        # gate rather than reported as the bare word `running`.
+        if [ "$run_branch" != "$CREW_BRANCH" ]; then
+          RUN_SOURCE=coarse
+          if [ "$(fm_nm_run_status_class "$COARSE_STATUS")" = live ]; then
+            nm_inspect_live_run "${coarse_decision#* }" || true
+          fi
+        fi
       fi
     fi
   fi
