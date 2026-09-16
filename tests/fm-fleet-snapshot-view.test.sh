@@ -73,20 +73,25 @@ case "\${1:-}" in
         if [ "\${1:-}" = --run ]; then
           [ "\${2:-}" = 01LIVE ] || { printf 'error: run %s not found\n' "\${2:-}"; exit 0; }
           cat <<'DETAIL'
-current_branch: $2
 run:
   id: "01LIVE"
   branch: $2
-  status: fix_review
+  status: running
   awaiting_agent: parked 23m57s
-  head: "$3"
+  head: $3
   pr: ""
-  findings[2]{id,severity,file,line,action,description}:
-    f1,warning,a.go,,auto-fix,ignored error
-    f2,error,b.go,,ask-user,changes product behavior
+  findings: "2 awaiting, 1 auto-fix, 1 info"
+  steps[3]{step,status,findings,duration_ms}:
+    intent,completed,0,10
+    review,fix_review,2,1437000
+    test,pending,0,0
 gate:
   step: review
   status: fix_review
+  summary: "two findings await a decision"
+  findings[2]{id,severity,file,action,description}:
+    f1,warning,a.go,auto-fix,"ignored error"
+    f2,error,b.go,ask-user,"changes product behavior"
 DETAIL
         else
           cat <<'STATUS'

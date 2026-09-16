@@ -383,29 +383,58 @@ steps[3]{step,status,findings,duration_ms}:
 EOF
 }
 
-# The live sibling run's own detail, as `no-mistakes axi status --run <id>`
-# returns it: a run PARKED at its gate in the exact shape of the 2026-09-15
-# incident - fix_review, parked 23m57s, two findings, one of them ask-user.
+# The live sibling run's own detail, in the shape `no-mistakes axi status --run
+# <id>` really returns (captured from run 01M2H391VCGZ6TX3ZKQKBHDBZ4 on the
+# installed CLI v1.72.0): the run status word stays `running` - the ledger's own
+# vocabulary has no gate words in it - the park shows up as `awaiting_agent`,
+# the steps table is nested under `run:`, and the per-run query adds the
+# top-level `gate:` block with the gate's findings table that the crew's own
+# bare `axi status` omits. Carries the 2026-09-15 incident's numbers: parked
+# 23m57s at review, two findings, one of them ask-user.
 run_parked_live_sibling() {  # <branch> <head> <id>
   cat <<EOF
-current_branch: $1
 run:
   id: "$3"
   branch: $1
-  status: fix_review
+  status: running
   awaiting_agent: parked 23m57s
-  head: "$2"
+  head: $2
   pr: ""
-  findings[2]{id,severity,file,line,action,description}:
-    f1,warning,a.go,,auto-fix,ignored error
-    f2,error,b.go,,ask-user,changes product behavior
+  findings: "2 awaiting, 1 auto-fix, 1 info"
+  steps[3]{step,status,findings,duration_ms}:
+    intent,completed,0,10
+    review,fix_review,2,1437000
+    test,pending,0,0
 gate:
   step: review
   status: fix_review
-steps[3]{step,status,findings,duration_ms}:
-  intent,completed,0,0
-  review,fix_review,2,0
-  test,pending,0,0
+  summary: "two findings await a decision"
+  findings[2]{id,severity,file,action,description}:
+    f1,warning,a.go,auto-fix,"ignored error"
+    f2,error,b.go,ask-user,"changes product behavior"
+EOF
+}
+
+# The same parked run as the crew's OWN bare `no-mistakes axi status` renders it
+# (captured alongside the shape above): identical `run:` block, but no
+# `gate:` block and no findings table at all - the gate is visible only as the
+# `fix_review` row inside the nested steps table, and the finding count only as
+# that row's own column.
+run_parked_awaiting_only() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: running
+  awaiting_agent: parked 1d2h
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  pr: "https://github.com/o/r/pull/247"
+  findings: "3 awaiting, 1 auto-fix, 2 info"
+  steps[4]{step,status,findings,duration_ms}:
+    intent,completed,0,10
+    review,completed,2,2422414
+    pr,completed,0,40497
+    ci,fix_review,3,349921
 EOF
 }
 
@@ -777,6 +806,23 @@ test_gate_block_parked_not_superseded() {
   assert_contains "$out" "1 finding(s)" "gate block wait includes finding count"
   assert_not_contains "$out" "superseded" "gate block wait not flagged stale"
   pass "gate block parked run is not flagged superseded"
+}
+
+# The production shape of a run parked at a gate, read from the crew's own bare
+# `axi status`: no gate block and no findings table, so both the gate name and
+# the finding count can only come from the steps table's fix_review row.
+test_awaiting_agent_without_gate_block_names_the_step_row_gate() {
+  reset_fakes
+  local d; d=$(new_case parked-awaiting-only)
+  make_repo_on_branch "$d/wt" fm/feat-await
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-await.meta" "window=fm:fm-feat-await" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_parked_awaiting_only fm/feat-await)"
+  local out; out=$(run_crew_state "$d" feat-await)
+  assert_equals "state: parked · source: run-step · parked at ci: 3 finding(s)" "$out" \
+    "a park visible only as a steps-table row must still name that gate"
+  assert_not_contains "$out" "state: working" "a run waiting on a human is not active work"
+  pass "an awaiting_agent run with no gate block reports its step row's gate"
 }
 
 test_ci_ready_done_log_beats_monitoring_run() {
@@ -3003,6 +3049,7 @@ test_genuine_daemon_down_reports_blocked
 test_genuine_parked_not_superseded
 test_scalar_gate_parked_not_superseded
 test_gate_block_parked_not_superseded
+test_awaiting_agent_without_gate_block_names_the_step_row_gate
 test_ci_ready_done_log_beats_monitoring_run
 test_ci_monitoring_checks_green_surfaces_done
 test_top_level_ci_checks_green_surfaces_done
