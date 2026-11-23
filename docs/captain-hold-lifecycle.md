@@ -653,6 +653,7 @@ The captured-source coverage proves:
 - Lavish deduplicates each card before separating versioned structured selections from notes.
 - Bare and annotated Reconcile choices never reach keyed answers.
 - Genuine current and legacy choices still close normally.
+- A Keep it open choice or a note-only answer is saved as a dated note and leaves the call open.
 - Legacy bare and separator-annotated reconcile values feed neither intake.
 - Mixed repeated selections preserve every other card's final value.
 - The generic runner creates a request only through a verified bound source.
@@ -663,8 +664,8 @@ The captured-source coverage proves:
 
 The board's half is pinned in `tests/fm-bearings-board.test.sh`:
 
-- Every published decision card carries exactly one reconcile option.
-- Authored options reserve that value across every card type.
+- Every published decision card carries exactly one Keep it open option and exactly one reconcile option.
+- Authored options reserve both values across every card type.
 - Recommendations name authored options.
 - A decision card whose structured subject appears in the payload's landed rows is dropped.
   A genuinely open one is kept even when an unrelated landed id contains its key after a newline.
