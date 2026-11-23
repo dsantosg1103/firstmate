@@ -1698,21 +1698,37 @@ EOF
     "a bare keep-open did not record its dated line"
   assert_contains "$show" "Gated work plan." "keeping work open lost its body"
 
-  # The same words arriving again add nothing; different words add a new note.
+  # A replay of the same delivery adds nothing.
   out=$(run_lavish "$home" answers "$result" \
     | FM_CAPTAIN_HOLD_NOW=2026-11-23T03:00:00Z \
-      run_captain "$home" answers --source "board sequence 2" 2>&1) \
+      run_captain "$home" answers --source "board sequence 1" 2>&1) \
     || fail "replaying kept-open answers reported a failure: $out"
   assert_contains "$out" "kept: sample-note-only-call" "a replayed note-only answer was not reported: $out"
   count=$(tasks_in "$home" show sample-note-only-call --full | grep -o 'Captain hold kept open:' | wc -l | tr -d ' ')
-  [ "$count" = 1 ] || fail "the same note was saved $count times"
+  [ "$count" = 1 ] || fail "a replayed delivery saved the same note $count times"
+  count=$(tasks_in "$home" show sample-kept-work --full | grep -o 'Captain hold kept open:' | wc -l | tr -d ' ')
+  [ "$count" = 1 ] || fail "a replayed bare keep-open was saved $count times"
+
+  # The same words on a later, separate delivery add their own dated line.
+  out=$(run_lavish "$home" answers "$result" \
+    | FM_CAPTAIN_HOLD_NOW=2026-11-23T03:30:00Z \
+      run_captain "$home" answers --source "board sequence 2" 2>&1) \
+    || fail "a later delivery of the same words reported a failure: $out"
+  show=$(tasks_in "$home" show sample-kept-work --full)
+  count=$(printf '%s\n' "$show" | grep -o 'Captain hold kept open:' | wc -l | tr -d ' ')
+  [ "$count" = 2 ] || fail "a later bare keep-open was not saved with its own date (found $count notes)"
+  assert_contains "$show" 'Captain hold kept open: 2026-11-23T03:30:00Z (board sequence 2)\n(no note)' \
+    "a later bare keep-open did not record its own dated line"
+  show=$(tasks_in "$home" show sample-note-only-call --full)
+  assert_contains "$show" 'Captain hold kept open: 2026-11-23T03:30:00Z (board sequence 2)\nI don'"'"'t understand this question' \
+    "the same note on a later delivery was not saved with its own date"
   printf 'sample-note-only-call\tplease explain the options\t\tkeep\n' \
     | FM_CAPTAIN_HOLD_NOW=2026-11-23T04:00:00Z \
       run_captain "$home" answers --source "captain chat" >/dev/null \
     || fail "a second, different note was refused"
   show=$(tasks_in "$home" show sample-note-only-call --full)
   count=$(printf '%s\n' "$show" | grep -o 'Captain hold kept open:' | wc -l | tr -d ' ')
-  [ "$count" = 2 ] || fail "a different later note was not added (found $count notes)"
+  [ "$count" = 3 ] || fail "a different later note was not added (found $count notes)"
   assert_contains "$show" 'Captain hold kept open: 2026-11-23T04:00:00Z (captain chat)\nplease explain the options' \
     "the later note was not saved with its own date"
   assert_contains "$show" "held: yes" "a later note released the captain call"

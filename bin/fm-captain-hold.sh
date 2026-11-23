@@ -93,7 +93,7 @@
 # empty or `done` completes the task, `release` lifts the hold so held work
 # resumes, and `keep` closes nothing - it appends one dated
 # `Captain hold kept open:` note carrying the answer text, leaves the hold in
-# place, and reports `kept:` (the same words already kept are a no-op);
+# place, and reports `kept:` (a replay of the same delivery is a no-op);
 # anything else is skipped. A `release` line while the away-posture
 # record exists is reported as `refused:` under the same attended-only rule as
 # `answer --release` and feeds nothing. A key that names no task, a task that is
@@ -1558,8 +1558,9 @@ sanitize_reconcile_provenance() {
 }
 
 # The keep-open outcome: record the captain's words on a still-open captain
-# call with a dated line and leave the hold exactly as it was. The same words
-# already kept on the call add nothing, so a replayed delivery is a no-op.
+# call with a dated line and leave the hold exactly as it was. A replay of the
+# same delivery (same source and words) adds nothing; any other delivery adds
+# its own dated line, even with identical words.
 # Returns nonzero with KEEP_REASON set when the call is not an open captain call
 # or the note could not be recorded.
 KEEP_REASON=
@@ -1578,8 +1579,11 @@ keep_open_record() {  # <task-id> <source> <words>
     || { KEEP_REASON='not held for the captain'; return 1; }
   body=$(decode_shown_value "$(show_field "$show" body)") \
     || { KEEP_REASON='could not decode the existing body'; return 1; }
-  if printf '%s\n' "$body" | KEEP_WORDS=$words awk '
-      prev ~ /^Captain hold kept open: / && $0 == ENVIRON["KEEP_WORDS"] { found = 1 }
+  if printf '%s\n' "$body" | KEEP_WORDS=$words KEEP_TAIL=" ($source)" awk '
+      BEGIN { tail = ENVIRON["KEEP_TAIL"] }
+      prev ~ /^Captain hold kept open: / && length(prev) > length(tail) \
+        && substr(prev, length(prev) - length(tail) + 1) == tail \
+        && $0 == ENVIRON["KEEP_WORDS"] { found = 1 }
       { prev = $0 }
       END { exit !found }'; then
     return 0

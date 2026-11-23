@@ -271,7 +271,7 @@ The first is the standard `keep-open` choice ("Keep it open") that `bin/fm-beari
 The second is a note typed without choosing any option, which is an instruction to read rather than a selection.
 The Lavish adapter emits either as a `keep` row whose answer is the note, or `(no note)` for a bare Keep it open, overriding any card-declared `release`.
 The intake appends one dated `Captain hold kept open: <UTC> (<source>)` line followed by those words to the task body, leaves the hold and state unchanged, writes no resolution record, and reports `kept:`.
-The same words already kept on the call add nothing, so a replayed delivery is a no-op, while different later words add a new dated note.
+A replay of the same delivery (same source and words) adds nothing, while every later delivery adds its own dated note, even with identical words.
 The wake still carries the capture, and firstmate reads the words and follows up by hand.
 The rollout-compatible old board context cannot separate a note from a selection, so it keeps its earlier behavior.
 
