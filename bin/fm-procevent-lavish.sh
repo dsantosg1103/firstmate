@@ -761,6 +761,9 @@ cmd_silent() {
 # Print `key<TAB>answer<TAB>label[<TAB>mode]` for each non-reconcile structured choice the
 # captain submitted in a captured result; the optional mode column relays the
 # card's declared close mode (`done` or `release`) to the keyed-answer intake.
+# A `keep-open` selection, or a versioned row with a note and no selection,
+# instead carries mode `keep` and the captain's note (or `(no note)`) as the
+# answer, overriding the card's declared mode.
 # Items come from the shared result parser above, in either emission form, and
 # only items whose `tag` field is `choice` are read.
 # The header owns the partial-output and failure contract.
@@ -826,6 +829,13 @@ cmd_choice_rows() {
         next if !defined($data->{close}) || ref($data->{close})
           || ($data->{close} ne "done" && $data->{close} ne "release");
         $mode = $data->{close};
+      }
+      # Keep-open, and a note with no selected option, are not final answers:
+      # whatever the card declared, they keep the call open with the
+      # words of the captain (docs/captain-hold-lifecycle.md owns the meaning).
+      if (!$legacy && ($selected eq "keep-open" || !length($selected))) {
+        $mode = "keep";
+        $answer = length($note) ? $note : "(no note)";
       }
       my $label = defined $f{text} ? $f{text} : "";
       s/[\x00-\x1f\x7f]/ /g for ($answer, $note, $label);

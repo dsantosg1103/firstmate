@@ -323,17 +323,17 @@ test_build_injects_binds_then_arms() {
   assert_contains "$out" "armed: " "the first build did not arm the board source: $out"
   assert_present "$board" "build reported success without a board"
 
-  # Round-trip: apart from the reconcile choice the build adds to every
-  # decision card, the payload extracted from the built page is the same JSON
+  # Round-trip: apart from the keep-open and reconcile choices the build adds
+  # to every decision card, the payload extracted from the built page is the same JSON
   # document, and the escaped </script> string can no longer terminate the
   # data block.
   extract_payload "$board" | jq -S . > "$home/extracted.json" \
     || fail "the built board does not carry parseable payload JSON"
   jq -S '.captains_call = [.captains_call[]
-      | .options = [.options[] | select(.value != "reconcile")]]' \
+      | .options = [.options[] | select(.value != "reconcile" and .value != "keep-open")]]' \
     "$home/extracted.json" > "$home/stripped.json"
   jq -S '.captains_call = [.captains_call[]
-      | .options = [.options[] | select(.value != "reconcile")]]' \
+      | .options = [.options[] | select(.value != "reconcile" and .value != "keep-open")]]' \
     "$data" > "$home/expected.json"
   diff -u "$home/expected.json" "$home/stripped.json" >/dev/null \
     || fail "the injected payload does not round-trip to the input document"
