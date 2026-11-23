@@ -769,6 +769,48 @@ test_build_refuses_a_nondecision_reconcile_value() {
   pass "build reserves reconcile across non-decision cards"
 }
 
+# --- part 4: every decision card offers keep-open ---------------------------
+
+test_every_decision_card_carries_the_keep_open_choice() {
+  local home data board
+  home=$(make_home keep-open-option)
+  data="$home/payload.json"
+  board="$home/.lavish/bearings-board.html"
+  write_valid_payload "$data"
+  run_board "$home" build "$data" >/dev/null || fail "the keep-open-option build failed"
+  extract_payload "$board" | jq -e '
+    ([.captains_call[] | select(.type == "decision")] | length) > 0
+    and ([.captains_call[]
+      | select(.type == "decision")
+      | ([.options[] | select(.value == "keep-open")] | length) == 1
+        and ([.options[] | select(.value == "keep-open") | .label == "Keep it open"] | all)] | all)
+  ' >/dev/null || fail "a decision card was published without the keep-open choice"
+  extract_payload "$board" | jq -e '
+    ([.captains_call[] | select(.type != "decision")
+      | .options[] | select(.value == "keep-open")] | length) == 0
+  ' >/dev/null || fail "keep-open was injected into a non-decision card"
+  pass "every decision card carries exactly one keep-open choice"
+}
+
+test_build_refuses_a_payload_that_occupies_the_keep_open_value() {
+  local home data rc card
+  for card in 0 1; do
+    home=$(make_home "keep-open-reserved-$card")
+    data="$home/payload.json"
+    write_valid_payload "$data"
+    jq --argjson card "$card" \
+      '.captains_call[$card].options += [{"value":"keep-open","label":"Composer keep"}]' \
+      "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+    set +e
+    run_board "$home" build "$data" >/dev/null 2>&1
+    rc=$?
+    set -e
+    [ "$rc" -ne 0 ] || fail "card $card occupying the reserved keep-open value was accepted"
+    assert_absent "$home/.lavish/bearings-board.html" "a refused keep-open payload still produced a board"
+  done
+  pass "build reserves keep-open across every card type"
+}
+
 test_path_is_stable_and_home_scoped
 test_build_refuses_malformed_payloads_before_touching_the_board
 test_charted_kind_is_optional_and_accepts_both_values
@@ -787,3 +829,5 @@ test_build_fails_when_reconcile_cannot_establish_a_listener
 test_every_decision_card_carries_the_reconcile_choice
 test_build_refuses_a_payload_that_occupies_the_reconcile_value
 test_build_refuses_a_nondecision_reconcile_value
+test_every_decision_card_carries_the_keep_open_choice
+test_build_refuses_a_payload_that_occupies_the_keep_open_value
