@@ -1,0 +1,67 @@
+=== [before-fix base 68c50a01] lab home /var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.IOpyXg
+--- adapter rows (fm-procevent-lavish.sh answers):
+demo-approve <TAB> approve <TAB> Approve vendor -> approve
+demo-keep <TAB> keep-open <TAB> Ship now or wait -> keep-open
+demo-note <TAB> I do not understand this question <TAB> Pick a vendor -> I do not understand this question
+demo-gated <TAB> keep-open <TAB> Gated work -> keep-open - after the demo <TAB> release
+--- intake delivery 1 (board sequence 7, 2026-11-22T10:00:00Z):
+closed: demo-approve
+closed: demo-keep
+closed: demo-note
+closed: demo-gated
+answers: closed=4 skipped=0
+exit=0
+--- demo-approve:
+  state: done
+  held: no
+  hold_kind: captain
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 40ee3637198b1efc367a7947ee7329f7c6cf7848ad577ae4056dbfc334922609\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through board sequence 7.\nTask: demo-approve\nAnswer: approve\nAnswer as shown to the captain: Approve vendor -> approve"
+--- demo-keep:
+  state: done
+  held: no
+  hold_kind: captain
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 9d526d7729550c61941ac638b66adc402e7eec83169432d908c777a4cd8c2a6f\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through board sequence 7.\nTask: demo-keep\nAnswer: keep-open\nAnswer as shown to the captain: Ship now or wait -> keep-open"
+--- demo-note:
+  state: done
+  held: no
+  hold_kind: captain
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: a49a844c12887d81e35fb867b84662f47a6f02dce2b3203b57a6046ab8679aec\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through board sequence 7.\nTask: demo-note\nAnswer: I do not understand this question\nAnswer as shown to the captain: Pick a vendor -> I do not understand this question"
+--- demo-gated:
+  state: queued
+  held: no
+  hold_kind: "-"
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 09e17fcde1d9118120cd63ccc3142a9f1d93ebde3c5205556b65b418b9a90f78\nResolution mode: released\n\nCaptain decision:\nCaptain answered this call through board sequence 7.\nTask: demo-gated\nAnswer: keep-open\nAnswer as shown to the captain: Gated work -> keep-open - after the demo\n\nGated work plan."
+--- replay same delivery (board sequence 7):
+closed: demo-approve
+closed: demo-keep
+closed: demo-note
+closed: demo-gated
+answers: closed=4 skipped=0
+exit=0
+--- later separate delivery with identical words (board sequence 8):
+skipped: demo-approve (already closed)
+skipped: demo-keep (already closed)
+skipped: demo-note (already closed)
+skipped: demo-gated (not held for the captain)
+answers: closed=0 skipped=4
+exit=1
+--- demo-keep kept-open lines:
+       0
+  state: done
+  held: no
+  hold_kind: captain
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 9d526d7729550c61941ac638b66adc402e7eec83169432d908c777a4cd8c2a6f\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through board sequence 7.\nTask: demo-keep\nAnswer: keep-open\nAnswer as shown to the captain: Ship now or wait -> keep-open"
+--- demo-note kept-open lines:
+       0
+  state: done
+  held: no
+  hold_kind: captain
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: a49a844c12887d81e35fb867b84662f47a6f02dce2b3203b57a6046ab8679aec\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through board sequence 7.\nTask: demo-note\nAnswer: I do not understand this question\nAnswer as shown to the captain: Pick a vendor -> I do not understand this question"
+--- demo-gated kept-open lines:
+       0
+  state: queued
+  held: no
+  hold_kind: "-"
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 09e17fcde1d9118120cd63ccc3142a9f1d93ebde3c5205556b65b418b9a90f78\nResolution mode: released\n\nCaptain decision:\nCaptain answered this call through board sequence 7.\nTask: demo-gated\nAnswer: keep-open\nAnswer as shown to the captain: Gated work -> keep-open - after the demo\n\nGated work plan."
+--- 'open' check (is demo-note still an open captain call?):
+exit=1

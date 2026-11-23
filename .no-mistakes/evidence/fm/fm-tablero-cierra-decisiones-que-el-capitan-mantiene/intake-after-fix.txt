@@ -1,0 +1,67 @@
+=== [after-fix 35f36acf] lab home /var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.O7XvDE
+--- adapter rows (fm-procevent-lavish.sh answers):
+demo-approve <TAB> approve <TAB> Approve vendor -> approve
+demo-keep <TAB> (no note) <TAB> Ship now or wait -> keep-open <TAB> keep
+demo-note <TAB> I do not understand this question <TAB> Pick a vendor -> I do not understand this question <TAB> keep
+demo-gated <TAB> after the demo <TAB> Gated work -> keep-open - after the demo <TAB> keep
+--- intake delivery 1 (board sequence 7, 2026-11-22T10:00:00Z):
+closed: demo-approve
+kept: demo-keep
+kept: demo-note
+kept: demo-gated
+answers: closed=1 kept=3 skipped=0
+exit=0
+--- demo-approve:
+  state: done
+  held: no
+  hold_kind: captain
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 40ee3637198b1efc367a7947ee7329f7c6cf7848ad577ae4056dbfc334922609\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through board sequence 7.\nTask: demo-approve\nAnswer: approve\nAnswer as shown to the captain: Approve vendor -> approve"
+--- demo-keep:
+  state: queued
+  held: yes
+  hold_kind: captain
+  body: "Captain hold set: 2026-11-23T02:19:31Z\n\nCaptain hold kept open: 2026-11-22T10:00:00Z (board sequence 7)\n(no note)"
+--- demo-note:
+  state: queued
+  held: yes
+  hold_kind: captain
+  body: "Captain hold set: 2026-11-23T02:19:32Z\n\nCaptain hold kept open: 2026-11-22T10:00:00Z (board sequence 7)\nI do not understand this question"
+--- demo-gated:
+  state: queued
+  held: yes
+  hold_kind: captain
+  body: "Captain hold set: 2026-11-23T02:19:33Z\n\nGated work plan.\n\nCaptain hold kept open: 2026-11-22T10:00:00Z (board sequence 7)\nafter the demo"
+--- replay same delivery (board sequence 7):
+closed: demo-approve
+kept: demo-keep
+kept: demo-note
+kept: demo-gated
+answers: closed=1 kept=3 skipped=0
+exit=0
+--- later separate delivery with identical words (board sequence 8):
+skipped: demo-approve (already closed)
+kept: demo-keep
+kept: demo-note
+kept: demo-gated
+answers: closed=0 kept=3 skipped=1
+exit=1
+--- demo-keep kept-open lines:
+       2
+  state: queued
+  held: yes
+  hold_kind: captain
+  body: "Captain hold set: 2026-11-23T02:19:31Z\n\nCaptain hold kept open: 2026-11-22T10:00:00Z (board sequence 7)\n(no note)\n\nCaptain hold kept open: 2026-11-23T09:00:00Z (board sequence 8)\n(no note)"
+--- demo-note kept-open lines:
+       2
+  state: queued
+  held: yes
+  hold_kind: captain
+  body: "Captain hold set: 2026-11-23T02:19:32Z\n\nCaptain hold kept open: 2026-11-22T10:00:00Z (board sequence 7)\nI do not understand this question\n\nCaptain hold kept open: 2026-11-23T09:00:00Z (board sequence 8)\nI do not understand this question"
+--- demo-gated kept-open lines:
+       2
+  state: queued
+  held: yes
+  hold_kind: captain
+  body: "Captain hold set: 2026-11-23T02:19:33Z\n\nGated work plan.\n\nCaptain hold kept open: 2026-11-22T10:00:00Z (board sequence 7)\nafter the demo\n\nCaptain hold kept open: 2026-11-23T09:00:00Z (board sequence 8)\nafter the demo"
+--- 'open' check (is demo-note still an open captain call?):
+exit=0

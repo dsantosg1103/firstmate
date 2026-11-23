@@ -1,0 +1,9 @@
+board: /var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.EqHIKg/.lavish/bearings-board.html
+session:
+  file: /private/var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T/fm-lab.EqHIKg/.lavish/bearings-board.html
+  url: "http://127.0.0.1:4387/session/0123456789abcdef"
+  status: opened
+session: live
+served: /var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.EqHIKg/.lavish/bearings-board.html
+bound: lavish-2da68ae06ddf3df0
+armed: lavish-2da68ae06ddf3df0
