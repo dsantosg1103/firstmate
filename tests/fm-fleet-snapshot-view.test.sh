@@ -57,7 +57,8 @@ SH
 }
 
 # A `no-mistakes` fake for the incident's exact shape: this branch has no run
-# object bare `axi status` can bind, its recent-runs table and the home view
+# object bare `axi status` can bind (and no authoritative
+# `runs_on_current_branch: 0` verdict either), its recent-runs table and the home view
 # `no-mistakes axi` prints carry the live run's id, the ledger lists that run,
 # and inspecting it by id shows a run parked at its gate with an ask-user finding.
 write_parked_run_fake() {  # <fakebin> <branch> <head>
@@ -96,7 +97,6 @@ DETAIL
         else
           cat <<'STATUS'
 current_branch: $2
-runs_on_current_branch: 0
 count: 1 of 1 total
 runs[1]{id,branch,status,head,pr}:
   "01LIVE",$2,running,$3,""
