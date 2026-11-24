@@ -1,0 +1,50 @@
+$ FM_HOME=$LAB bin/fm-fleet-snapshot.sh
+{
+  "schema": "fm-fleet-snapshot.v1",
+  "generated": "2026-11-24T17:17:48Z",
+  "fm_home": "/var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.rj0o2A",
+  "roots": {
+    "fm_root": "/Users/danielsantos/.no-mistakes/worktrees/c8bc31103fa7/01M878BKGJ25WE3AMD32506ARJ",
+    "state": "/var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.rj0o2A/state",
+    "data": "/var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.rj0o2A/data",
+    "config": "/var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.rj0o2A/config",
+    "projects": "/var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.rj0o2A/projects"
+  },
+  "backlog": {
+    "path": "/var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.rj0o2A/data/backlog.md",
+    "present": false,
+    "records": []
+  },
+  "tasks": [],
+  "main_inventory": {
+    "valid": true,
+    "reason": null,
+    "orphan_in_flight": [],
+    "unstructured_current_count": 0
+  },
+  "contributions": {
+    "known": 0,
+    "checked": 0,
+    "counts": {
+      "captain": 0,
+      "fleet": 0,
+      "maintainer": 0,
+exit=
+
+$ FM_HOME=$LAB bin/fm-crew-state.sh
+usage: fm-crew-state.sh <id>
+exit=
+
+$ FM_HOME=$LAB FM_POLL=1 bin/fm-watch-checkpoint.sh --seconds 2
+checkpoint: no actionable wake within 2s
+exit=
+.
+..
+.inactive-outcome-reconcile
+.last-check
+.last-heartbeat
+.last-watcher-beat
+.secondmate-liveness-tick
+.watcher-down
+home-summary.json
+terminal-outcomes

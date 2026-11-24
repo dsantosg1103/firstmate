@@ -1,0 +1,2 @@
+not ok - watch lock pid survived quiet checkpoint timeout
+exit=1 secs=7

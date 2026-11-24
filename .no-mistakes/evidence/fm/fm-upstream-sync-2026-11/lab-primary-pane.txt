@@ -1,0 +1,15 @@
+ ▐▛███▛█   Claude Code v2.1.328
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/c8bc31103fa7/01M878BKGJ25WE3AMD32506ARJ
+❯ Lab check only: run bin/fm-fleet-snapshot.sh and reply with just its schema and fm_home values. Do nothing else.
+  Ran 1 shell command
+⏺ Captain, the snapshot ran fine:
+  - schema: fm-fleet-snapshot.v1
+  - fm_home: /var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.rj0o2A
+✻ Baked for 5s · done 11:20 AM
+                                                               Update available · run brew upgrade claude-code@latest
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 | ctx: 5% used
+  ⏵⏵ auto mode on (shift+tab to cycle)
