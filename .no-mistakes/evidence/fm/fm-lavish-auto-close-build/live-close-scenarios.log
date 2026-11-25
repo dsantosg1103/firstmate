@@ -1,0 +1,53 @@
+# lavish-axi 0.1.98 on throwaway port 51517
+
+== S1 close-task ends a finished task's page (file present) and closes only its tab
+closed: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/2be56d011bcf0524 (task crew-a) | rc=0
+PASS  S1 page ended in real Lavish store, listener retired, own tab only
+rerun: 'closed: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/2be56d011bcf0524 (task crew-a)'
+PASS  S1b rerun is safe: page stays ended, no listener, no error (only a repeat best-effort tab close)
+
+== S2 open captain call keeps the page
+kept: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/ceebd3117e59a617 (task scout-h still has an open captain call)
+PASS  S2 kept: line, page still open
+
+== S3 decision 4: open-call page inside a doomed copy is saved into data/<id> and reopened; ended page beside it is not resurrected
+ended page status before: ended
+closed: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/b2394e1fc573d259 (task crew-s)
+saved: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/b2394e1fc573d259 -> http://mac-mini-de-daniel.tail764852.ts.net:51517/session/f696bd95aecdaa41 (/private/var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T/fm-lavish-live.Qvo26K/s3/data/crew-s/decision.html; task crew-s still has an open captain call; give the captain the new link)
+closed: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/5ae972bdf7f338ce (task crew-s) | rc=0
+PASS  S3 saved: new link f696bd95aecdaa41 open in real Lavish, old b2394e1fc573d259 ended, listener carried
+PASS  S3b already-ended page neither copied, reopened, nor reported saved/kept
+
+== S4 decision 3: answering the last open call closes the page; one of two does not
+answered: scout-a-1
+answered: scout-a-2
+closed: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/fbd058ca6b4d96dd (task scout-a)
+PASS  S4 open after 1st answer, ended+tab closed after last answer
+
+== S5 answer --release leaves the resuming task's page open and listening
+released: crew-r-call
+PASS  S5 --release kept page open, listener armed
+== S5b plain answer of a running task's last call still closes
+answered: crew-n-call
+closed: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/62defa7f2354f30a (task crew-n)
+PASS  S5b running task page closed on plain answer
+
+== S6 close-sweep: finished-task page and gone-file page (Ponytail-like) end; bearings board and running task untouched
+closed: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/af4c2c98e689e07b (task crew-g)
+closed: http://mac-mini-de-daniel.tail764852.ts.net:51517/session/c762323eee87a2a1 (task crew-k)
+PASS  S6 sweep ended finished + gone-file (via its own key) pages; bearings and running page stay open
+PASS  S6b repeated sweep is silent
+
+== S7 no lavish-axi on PATH: silent no-op
+PASS  S7 silent no-op
+
+tabs.log:
+tab /session/2be56d011bcf0524
+tab /session/2be56d011bcf0524
+tab /session/b2394e1fc573d259
+tab /session/5ae972bdf7f338ce
+tab /session/fbd058ca6b4d96dd
+tab /session/62defa7f2354f30a
+tab /session/af4c2c98e689e07b
+tab /session/c762323eee87a2a1
+FAILURES=0
