@@ -1,0 +1,27 @@
+### A board payload whose card already uses the reserved keep-open value is refused
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: /var/folders/xx/n7zv7n2j1kj8x56yr9hysl880000gn/T//fm-lab.5FXKbA/bad.json
+exit=
+board unchanged: yes
+
+### Keep it open on a call that is already closed does nothing (skipped)
+skipped: sample-approve-call (already closed)
+answers: closed=0 kept=0 skipped=1
+exit=1
+  state: done
+  held: no
+
+### Keep it open on held ship work: hold stays, work does not resume
+kept: sample-gated-work
+answers: closed=0 kept=1 skipped=0
+exit=0
+  state: queued
+  held: yes
+  body: "Captain hold set: 2026-11-25T16:38:10Z\n\nGated work plan.\n\nCaptain hold kept open: 2026-11-25T17:00:00Z (board sequence 3)\n(no note)"
+
+### Then a real release answer on the same work still releases it right away
+closed: sample-gated-work
+answers: closed=1 kept=0 skipped=0
+exit=0
+  state: queued
+  held: no
+refused build exit=1

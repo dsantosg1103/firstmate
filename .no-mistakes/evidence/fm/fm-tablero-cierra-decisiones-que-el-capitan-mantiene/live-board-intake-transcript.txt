@@ -1,0 +1,48 @@
+### Live board answers, as captured by the armed listener (wake inbox: lavish-3506a847125786bb.1.result)
+$ fm-procevent-lavish.sh answers <captured result>
+cat: illegal option -- A
+usage: cat [-belnstuv] [file ...]
+
+### Task state after the live Send & End
+  id: sample-keep-call
+  state: queued
+  held: yes
+  body: "Captain hold set: 2026-11-25T16:35:56Z\n\nCaptain hold kept open: 2026-11-25T16:37:26Z (the captured result lavish-3506a847125786bb sequence 1)\nafter the demo"
+  id: sample-note-call
+  state: queued
+  held: yes
+  body: "Captain hold set: 2026-11-25T16:35:58Z\n\nCaptain hold kept open: 2026-11-25T16:37:27Z (the captured result lavish-3506a847125786bb sequence 1)\nI don't understand this question"
+  id: sample-approve-call
+  state: done
+  held: no
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: dc0dcdfac9ed87f795d92337b9d56e3a4aa9bbd6313a2e37bed7467e5addb54c\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through the captured result lavish-3506a847125786bb sequence 1.\nTask: sample-approve-call\nAnswer: yes\nAnswer as shown to the captain: Adopt the new cache -> yes"
+
+### Replay of the same delivery (same source) - must add nothing and close nothing
+$ fm-procevent-lavish.sh answers <result> | fm-captain-hold.sh answers --source "the captured result lavish-3506a847125786bb sequence 1"
+kept: sample-keep-call
+kept: sample-note-call
+closed: sample-approve-call
+answers: closed=1 kept=2 skipped=0
+exit=0
+  id: sample-keep-call
+  state: queued
+  held: yes
+  body: "Captain hold set: 2026-11-25T16:35:56Z\n\nCaptain hold kept open: 2026-11-25T16:37:26Z (the captured result lavish-3506a847125786bb sequence 1)\nafter the demo"
+  id: sample-note-call
+  state: queued
+  held: yes
+  body: "Captain hold set: 2026-11-25T16:35:58Z\n\nCaptain hold kept open: 2026-11-25T16:37:27Z (the captured result lavish-3506a847125786bb sequence 1)\nI don't understand this question"
+
+### Later, separate delivery with identical words - adds its own dated line
+kept: sample-keep-call
+answers: closed=0 kept=1 skipped=0
+exit=0
+  id: sample-keep-call
+  state: queued
+  held: yes
+  body: "Captain hold set: 2026-11-25T16:35:56Z\n\nCaptain hold kept open: 2026-11-25T16:37:26Z (the captured result lavish-3506a847125786bb sequence 1)\nafter the demo\n\nCaptain hold kept open: 2026-11-26T15:00:00Z (the captured result lavish-3506a847125786bb sequence 2)\nafter the demo"
+
+### Rows the board relays to the intake (key<TAB>answer<TAB>label<TAB>mode)
+sample-keep-call<TAB>after the demo<TAB>Ship now or wait -> keep-open - after the demo<TAB>keep
+sample-note-call<TAB>I don't understand this question<TAB>Pick a vendor -> I don't understand this question<TAB>keep
+sample-approve-call<TAB>yes<TAB>Adopt the new cache -> yes
