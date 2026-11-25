@@ -82,6 +82,8 @@ set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/lavish-close-helpers.sh disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/lavish-close-helpers.sh"
 fm_git_identity fmtest fmtest@example.invalid
 
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
@@ -6567,6 +6569,157 @@ SH
   pass "post-reap proof retains late work and retry records on ordinary and Orca paths, preserving clean/force/scout behavior"
 }
 
+# --- plan pages close with their task ----------------------------------------
+# Cleanup closes a finished task's Lavish pages (bin/fm-procevent-lavish.sh
+# close-task owns the rules) before its copy is returned, keeps a page while a
+# captain call for the task is still open, saves such a page out of the copy
+# being deleted, and refuses while a page holds unread captain words. Every
+# case runs against the stand-ins in tests/lavish-close-helpers.sh.
+
+# Stand-ins, an isolated Lavish store, and an isolated process-event claim root
+# for one case. Pages under .lavish/ are git-ignored, like a project's own
+# review artifacts, so they never read as unlanded work in the copy.
+lavish_case() {  # <case-dir>
+  local case_dir=$1
+  fm_lavish_close_fakes "$case_dir/fakebin"
+  mkdir -p "$case_dir/lavish" "$case_dir/rounds"
+  : > "$case_dir/lavish.log"
+  mkdir -p "$case_dir/project/.git/info"
+  printf '.lavish/\n' >> "$case_dir/project/.git/info/exclude"
+  fm_test_track_procevent_home "$case_dir" "$case_dir/claims"
+}
+
+# Run a command with the case's Lavish world on PATH and in the environment.
+lavish_env() {  # <case-dir> <command...>
+  local case_dir=$1
+  shift
+  PATH="$case_dir/fakebin:$PATH" LAVISH_AXI_STATE_DIR="$case_dir/lavish" \
+    CLOSE_LOG="$case_dir/lavish.log" CLOSE_ROUNDS="$case_dir/rounds" \
+    FM_PROCEVENT_CLAIM_ROOT="$case_dir/claims" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" "$@"
+}
+
+lavish_page() {  # <case-dir> <file>: write a page, open its session, print its key
+  mkdir -p "$(dirname "$2")"
+  printf '<h1>plan</h1>\n' > "$2"
+  lavish_env "$1" lavish-axi "$2" >/dev/null || fail "fixture: could not open $2"
+  fm_lavish_close_key "$2"
+}
+
+lavish_arm() {  # <case-dir> <file>: task-x1 listens on its own board
+  lavish_env "$1" "$ROOT/bin/fm-procevent-lavish.sh" arm "$2" --for task-x1 >/dev/null \
+    || fail "fixture: could not arm task-x1's board at $2"
+}
+
+lavish_teardown() {  # <case-dir> [args]
+  local case_dir=$1
+  shift
+  LAVISH_AXI_STATE_DIR="$case_dir/lavish" CLOSE_LOG="$case_dir/lavish.log" \
+    CLOSE_ROUNDS="$case_dir/rounds" FM_PROCEVENT_CLAIM_ROOT="$case_dir/claims" \
+    run_teardown "$case_dir" "$@"
+}
+
+lavish_page_status() {  # <case-dir> <key>
+  fm_lavish_close_status "$1/lavish" "$2" "$1/fakebin"
+}
+
+# A finished task's board is ended, unlistened, and its tab closed before the
+# destructive return of its copy.
+test_teardown_closes_finished_task_page_before_return() {
+  local case_dir rc=0 key
+  case_dir=$(make_case lavish-close-finished)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  lavish_case "$case_dir"
+  key=$(lavish_page "$case_dir" "$case_dir/wt/.lavish/plan.html")
+  lavish_arm "$case_dir" "$case_dir/wt/.lavish/plan.html"
+  cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+LAVISH_AXI_STATE_DIR="$case_dir/lavish" "$case_dir/fakebin/close-store" status $key >> "$case_dir/at-return.log"
+[ -e "$case_dir/state/procevent/lavish-$key.source" ] && echo listening >> "$case_dir/at-return.log"
+exit 0
+EOF
+  chmod +x "$case_dir/fakebin/treehouse"
+  lavish_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "lavish-close-finished: teardown of a finished task with a board"
+  assert_grep "ended" "$case_dir/at-return.log" \
+    "lavish-close-finished: the page was still open when the copy was returned"
+  assert_no_grep "listening" "$case_dir/at-return.log" \
+    "lavish-close-finished: the board's listener was still registered when the copy was returned"
+  assert_grep "tab /session/$key" "$case_dir/lavish.log" \
+    "lavish-close-finished: the page's tab was not closed"
+  assert_grep "closed: http://127.0.0.1:14399/session/$key" "$case_dir/stdout" \
+    "lavish-close-finished: cleanup did not report the closed page"
+  pass "cleanup ends a finished task's page and retires its listener before returning its copy"
+}
+
+# An open captain call keeps a page whose file survives cleanup, and a page
+# inside the copy is saved into the task's data folder and reopened there.
+test_teardown_keeps_and_saves_open_call_pages() {
+  local case_dir rc=0 kept_key moved_key new_key
+  if ! command -v tasks-axi >/dev/null 2>&1; then
+    pass "skip: tasks-axi absent; open-call page cleanup not exercised"
+    return 0
+  fi
+  case_dir=$(make_case lavish-close-held)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  seed_backlog_in_flight "$case_dir"
+  lavish_case "$case_dir"
+  lavish_env "$case_dir" "$ROOT/bin/fm-captain-hold.sh" hold task-x1 \
+    --reason "captain must pick the rollout" >/dev/null \
+    || fail "lavish-close-held: could not hold task-x1 for the captain"
+  kept_key=$(lavish_page "$case_dir" "$case_dir/data/task-x1/report.html")
+  moved_key=$(lavish_page "$case_dir" "$case_dir/wt/.lavish/decision.html")
+  lavish_arm "$case_dir" "$case_dir/wt/.lavish/decision.html"
+  lavish_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "lavish-close-held: teardown with an open captain call"
+  [ "$(lavish_page_status "$case_dir" "$kept_key")" = open ] \
+    || fail "lavish-close-held: cleanup ended a page whose captain call is still open"
+  assert_present "$case_dir/data/task-x1/decision.html" \
+    "lavish-close-held: the page inside the copy was not saved into the task's data folder"
+  new_key=$(fm_lavish_close_key "$case_dir/data/task-x1/decision.html")
+  [ "$(lavish_page_status "$case_dir" "$new_key")" = open ] \
+    || fail "lavish-close-held: the saved page was not reopened"
+  [ "$(lavish_page_status "$case_dir" "$moved_key")" = ended ] \
+    || fail "lavish-close-held: the page inside the deleted copy was left open"
+  assert_grep "saved: http://127.0.0.1:14399/session/$moved_key -> http://127.0.0.1:14399/session/$new_key" \
+    "$case_dir/stdout" "lavish-close-held: cleanup did not name the saved page's new link"
+  assert_grep "kept: http://127.0.0.1:14399/session/$kept_key" "$case_dir/stdout" \
+    "lavish-close-held: cleanup did not name the page it kept"
+  assert_present "$case_dir/state/procevent/lavish-$new_key.source" \
+    "lavish-close-held: nobody listens on the saved page"
+  pass "cleanup keeps an open-question page and saves one out of the copy it deletes"
+}
+
+# Unread captain words stop cleanup with the round named; nothing is removed.
+test_teardown_refuses_unread_captain_words() {
+  local case_dir rc=0 key head
+  case_dir=$(make_case lavish-close-unread)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  lavish_case "$case_dir"
+  key=$(lavish_page "$case_dir" "$case_dir/wt/.lavish/plan.html")
+  lavish_arm "$case_dir" "$case_dir/wt/.lavish/plan.html"
+  printf '%s\n' "$FM_LAVISH_CLOSE_WORDS_ROUND" > "$case_dir/rounds/$key"
+  local n
+  for n in $(seq 1 200); do
+    [ -s "$case_dir/state/task-x1.inbox/001.msg" ] && break
+    sleep 0.1
+  done
+  [ -s "$case_dir/state/task-x1.inbox/001.msg" ] \
+    || fail "lavish-close-unread: fixture: the captain's round never reached task-x1"
+  lavish_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  [ "$rc" -ne 0 ] || fail "lavish-close-unread: cleanup threw away unread captain words"
+  assert_grep "lavish-$key 1" "$case_dir/stderr" "lavish-close-unread: the refusal does not name the round"
+  [ "$(lavish_page_status "$case_dir" "$key")" = open ] \
+    || fail "lavish-close-unread: cleanup ended a page whose captain words were never read"
+  assert_refusal_retained_task_state "$case_dir" lavish-close-unread "$head"
+  pass "cleanup refuses while a page holds unread captain words and names the round"
+}
+
 test_hidden_untracked_work_refuses_before_return
 test_content_fallback_git_capability_boundary
 test_work_written_at_reap_boundary_is_preserved
@@ -6729,3 +6882,6 @@ test_process_spawned_during_grace_is_reaped_on_later_pass
 test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
+test_teardown_closes_finished_task_page_before_return
+test_teardown_keeps_and_saves_open_call_pages
+test_teardown_refuses_unread_captain_words

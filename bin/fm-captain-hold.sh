@@ -32,7 +32,7 @@
 #   fm-captain-hold.sh binding <source-id>
 #   fm-captain-hold.sh complete <origin-id> (--none | <task-id>...)
 #   fm-captain-hold.sh verify <origin-id>
-#   fm-captain-hold.sh open <task-id> [--identity] [--distinguish-absent]
+#   fm-captain-hold.sh open <task-id> [--identity] [--distinguish-absent] [--with-origin]
 #   fm-captain-hold.sh diverged
 #   fm-captain-hold.sh reconcile list
 #   fm-captain-hold.sh reconcile close <task-id> --evidence-file <path>
@@ -196,6 +196,11 @@
 # successive calls on one task id: re-holding released work starts a new
 # lifecycle without necessarily touching the task's status log, so a consumer
 # that bounds repeated work per call cannot use the task id alone.
+# `--with-origin` also answers 0, printing nothing, when any other open captain
+# call records <task-id> as its origin (a `Captain hold origin:` or legacy
+# `Origin:` body line, or a legacy `<task-id>-decision-<key>` row), so it asks
+# whether any open call is tied to that task; bin/fm-procevent-lavish.sh asks it
+# before closing a task's Lavish pages.
 # bin/fm-teardown.sh asks it before its automatic
 # backlog close and, on 0, returns the row to Queued with its deliverable
 # recorded instead (bin/fm-backlog-transition-lib.sh owns that transition), so
@@ -1340,7 +1345,49 @@ remove_interrupted_answer_stamp() {  # <task-id>
   rm -f -- "$tmp"
 }
 
+# A task's Lavish pages close once no open captain call is tied to it any more
+# (bin/fm-procevent-lavish.sh close-task owns the rules). Asked for the answered
+# task and for its recorded origin, after the answer is durable. Best effort: a
+# page that cannot close is reported on stderr and never undoes the answer.
+# Skipped inside a process-event runner, whose own captured round is still
+# waiting for its handler.
+close_answered_pages() {  # <task-id>
+  local id=$1 owner owners body meta wt out status
+  [ -z "${FM_PROCEVENT_IN_RUNNER:-}" ] || return 0
+  command -v lavish-axi >/dev/null 2>&1 || return 0
+  owners=$id
+  if task_show "$id" 2>/dev/null; then
+    body=$(decode_shown_value "$(show_field "$TASK_SHOW_OUTPUT" body)" 2>/dev/null) || body=
+    owner=$(printf '%s\n' "$body" | sed -n 's/^Captain hold origin: \(.*\)$/\1/p; s/^Origin: \(.*\)$/\1/p' | head -1)
+    case "$owner" in ''|"$id"|*[!A-Za-z0-9._-]*) ;; *) owners="$owners $owner" ;; esac
+  fi
+  for owner in $owners; do
+    status=0
+    "$SCRIPT_DIR/fm-captain-hold.sh" open "$owner" --with-origin >/dev/null 2>&1 || status=$?
+    [ "$status" -eq 1 ] || continue
+    local -a roots=(--root "$DATA/$owner")
+    meta="$STATE/$owner.meta"
+    wt=$(meta_value "$meta" worktree 2>/dev/null || true)
+    [ -z "$wt" ] || roots+=(--root "$wt")
+    status=0
+    out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+      FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-procevent-lavish.sh" close-task "$owner" \
+      "${roots[@]}" 2>&1) || status=$?
+    [ -z "$out" ] || printf '%s\n' "$out" >&2
+    [ "$status" -eq 0 ] \
+      || printf 'warning: the Lavish pages of task %s stay open (exit %s); the regular check-up retries them\n' \
+        "$owner" "$status" >&2
+  done
+  return 0
+}
+
 command_answer() {
+  command_answer_record "$@"
+  release_task_control_lock
+  close_answered_pages "${1:-}"
+}
+
+command_answer_record() {
   local id=${1:-} decision_file='' release=0 show state hold_kind body outcome recorded_mode occurrence
   [ "$#" -ge 1 ] || { usage >&2; exit 2; }
   shift
@@ -2410,12 +2457,40 @@ EOF
 # exist holds nothing. Every read failure over a record that DOES exist is a 2,
 # printed to stderr, because a mechanical closer must never read "cannot tell"
 # as permission to close.
-command_open() {  # <task-id> [--identity] [--distinguish-absent]
-  local id='' identity=0 distinguish_absent=0 data state root file backend show shown_body
+# Is any OTHER open captain call recorded with <origin> as its origin? 0 yes,
+# 1 no, 2 cannot tell. A legacy `<origin>-decision-<key>` row counts by name.
+origin_open_call_exists() {  # <resolved-data-dir> <origin-id>
+  local data=$1 origin=$2 rows row_id body status=0
+  rows=$(fm_backlog_row_list "$data" --fields hold_kind) || return 2
+  rows=$(printf '%s\n' "$rows" | awk -F, '
+    /^  [A-Za-z0-9._-]+,/ {
+      id = $1
+      sub(/^ +/, "", id)
+      if ($2 != "done" && $NF == "captain") print id
+    }')
+  while IFS= read -r row_id <&7; do
+    [ -n "$row_id" ] && [ "$row_id" != "$origin" ] || continue
+    case "$row_id" in "$origin"-decision-?*) return 0 ;; esac
+    status=0
+    task_show "$row_id" || status=$?
+    [ "$status" -eq 0 ] || return 2
+    body=$(decode_shown_value "$(show_field "$TASK_SHOW_OUTPUT" body)") || return 2
+    printf '%s\n' "$body" | grep -Fxq -e "Captain hold origin: $origin" -e "Origin: $origin" \
+      && return 0
+  done 7<<EOF
+$rows
+EOF
+  return 1
+}
+
+command_open() {  # <task-id> [--identity] [--distinguish-absent] [--with-origin]
+  local id='' identity=0 distinguish_absent=0 with_origin=0 data state root file backend show shown_body
+  local self=1 origin_status
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --identity) identity=1 ;;
       --distinguish-absent) distinguish_absent=1 ;;
+      --with-origin) with_origin=1 ;;
       -*) usage >&2; exit 2 ;;
       *)
         [ -z "$id" ] || { usage >&2; exit 2; }
@@ -2466,14 +2541,26 @@ command_open() {  # <task-id> [--identity] [--distinguish-absent]
       fi
       return 0
     fi
-    return 1
+  elif [ "$FM_BACKLOG_ROW_RESULT" = not_found ]; then
+    self=3
+  else
+    printf 'fm-captain-hold: %s\n' "$FM_BACKLOG_ROW_ERROR" >&2
+    exit 2
   fi
-  if [ "$FM_BACKLOG_ROW_RESULT" = not_found ]; then
-    [ "$distinguish_absent" = 0 ] || return 3
-    return 1
+  if [ "$with_origin" -eq 1 ]; then
+    origin_status=0
+    origin_open_call_exists "$data" "$id" || origin_status=$?
+    case "$origin_status" in
+      0) return 0 ;;
+      1) ;;
+      *)
+        printf 'fm-captain-hold: could not read whether another open captain call names %s as its origin\n' "$id" >&2
+        exit 2
+        ;;
+    esac
   fi
-  printf 'fm-captain-hold: %s\n' "$FM_BACKLOG_ROW_ERROR" >&2
-  exit 2
+  [ "$self" -eq 3 ] && [ "$distinguish_absent" = 1 ] && return 3
+  return 1
 }
 
 case "${1:-}" in

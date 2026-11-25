@@ -816,6 +816,10 @@ else
       printf '%s\n' "$BRANCH_REPLAY_OUT"
     fi
   fi
+  # The Lavish plan-page check-up (bin/fm-procevent-lavish.sh close-sweep), run
+  # before the drain so a notice it owes is presented with this queue.
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-procevent-lavish.sh" close-sweep >/dev/null 2>&1 || true
   DRAIN_OUT=$("$SCRIPT_DIR/fm-wake-drain.sh" 2>&1)
   if [ -n "$DRAIN_OUT" ]; then
     printf '%s\n' "$DRAIN_OUT"

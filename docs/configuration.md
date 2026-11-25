@@ -3152,6 +3152,7 @@ The Lavish version floors and feature probe are owned by `bin/fm-bootstrap.sh`.
 - If the hosting worker cannot be recovered, relaunch a worker to re-host first; guarded firstmate adoption is an explicit last resort only after the old claim is proved dead.
 - The cross-home gap between worker rounds remains an accepted residual until lavish-axi's exclusive listener lands.
 - The interim crew instruction emitted by `bin/fm-brief.sh` points workers at this arm-and-acknowledge contract.
+- Firstmate closes a task's boards itself - at cleanup, when the task's last open captain call is answered, and on its regular check-up - and `bin/fm-procevent-lavish.sh` (`close-task`, `close-sweep`) owns when a board is kept, saved, refused, or closed.
 
 **Register deterministic condition and action watches**
 
