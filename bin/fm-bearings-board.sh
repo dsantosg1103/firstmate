@@ -13,7 +13,7 @@
 #
 # build      Validate the payload, drop the Captain's Call cards whose subject
 #            already landed, give every surviving decision card the standard
-#            reconcile choice, and inject the result into a fresh copy of the
+#            keep-open and reconcile choices, and inject the result into a fresh copy of the
 #            shipped template at the stable board path. Establish the Lavish
 #            session on that board and PROVE it is live BEFORE binding and
 #            arming its answer source, so a registered poll can never race a
@@ -62,6 +62,11 @@
 # carries no card type. Its meaning, and the reason it can never reach the
 # keyed-answer intake as a blind close, are owned by
 # docs/captain-hold-lifecycle.md.
+#
+# THE KEEP-OPEN CHOICE. Every decision card also carries the standard
+# `keep-open` option ("Keep it open"), injected and reserved across every card
+# type the same way and for the same reason. Choosing it keeps the call open
+# rather than answering it; docs/captain-hold-lifecycle.md owns that meaning.
 #
 # Validation is fail-closed: the payload must be valid JSON with
 # schema=fm-bearings-board.v1 and every renderer-consumed field must satisfy
@@ -168,6 +173,7 @@ validate_payload() {  # <data.json>
           and (.recommend_value as $recommend
             | ([.options[].value] | index($recommend) != null))))
       and ([.options[].value] | index("reconcile") == null)
+      and ([.options[].value] | index("keep-open") == null)
       and (if .type == "merge" then (.risk | nonempty_string) else true end);
     def underway_item:
       type == "object" and repo_marker and name_marker and (.id | nonempty_string)
@@ -290,9 +296,9 @@ decision_card_is_stale() {  # <task-id> <landed-0-or-1>
 }
 
 # Drop every stale decision card, then give every surviving decision card the
-# standard reconcile choice. Injecting it here is what makes "every decision
-# card offers reconcile" a property of the board rather than of the composer's
-# memory; the validator prevents duplicate decision options.
+# standard keep-open and reconcile choices. Injecting them here is what makes
+# "every decision card offers them" a property of the board rather than of the
+# composer's memory; the validator prevents duplicate decision options.
 effective_payload() {  # <data.json> <dest.json>
   local data=$1 dest=$2 landed_keys key reason drop='' tmp landed=0
   landed_keys=$(jq -c '
@@ -329,6 +335,10 @@ effective_payload() {  # <data.json> <dest.json>
       | select($card.type != "decision" or (($dropped | index($card.key)) == null))
       | if .type == "decision"
         then .options += [{
+          value: "keep-open",
+          label: "Keep it open",
+          hint: "Not decided yet - keep this waiting"
+        }, {
           value: "reconcile",
           label: "Reconcile",
           hint: "Re-check the latest state, then close this with evidence or keep it open with a note"

@@ -1628,6 +1628,113 @@ SH
   pass "a bound channel's captured answers close their captain-held tasks at answer time"
 }
 
+# A board answer that is not a final answer keeps the call open. Choosing the
+# standard Keep it open option, or writing only a note without choosing any
+# option, records the captain's words on the call with a date and leaves it
+# held - even on a card that would otherwise release gated work.
+test_board_non_answers_keep_the_call_open() {
+  local home result out rc show count
+  home=$(make_home board-keep-open)
+  run_captain "$home" hold sample-note-only-call --title "Captain call: vendor" \
+    --reason "captain vendor choice pending" --repo sample >/dev/null \
+    || fail "could not hold the note-only call"
+  run_captain "$home" hold sample-keep-open-call --title "Captain call: ship now or wait" \
+    --reason "captain timing choice pending" --repo sample >/dev/null \
+    || fail "could not hold the keep-open call"
+  tasks_in "$home" add sample-kept-work "Gated sample work" --kind ship --repo sample \
+    --body 'Gated work plan.' >/dev/null
+  run_captain "$home" hold sample-kept-work --reason "captain go needed" >/dev/null \
+    || fail "could not hold the gated work"
+
+  result="$home/keep-open.result"
+  cat > "$result" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+  session_ended: true
+  ended_by: user
+prompts[3]{uid,prompt,selector,tag,text}:
+  "1","Captain's Call answer - Vendor: I don't understand this question\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-note-only-call\",\n  \"selection\": \"\",\n  \"note\": \"I don't understand this question\"\n}","form",choice,"Vendor -> I don't understand this question"
+  "2","Captain's Call answer - Ship now or wait: keep-open - after the demo\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-keep-open-call\",\n  \"selection\": \"keep-open\",\n  \"note\": \"after the demo\"\n}","form",choice,"Ship now or wait -> keep-open - after the demo"
+  "3","Captain's Call answer - Gated work: keep-open\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-kept-work\",\n  \"selection\": \"keep-open\",\n  \"note\": \"\",\n  \"close\": \"release\"\n}","form",choice,"Gated work -> keep-open"
+next_step: This was the last feedback before the user ended the session.
+EOF
+
+  out=$(run_lavish "$home" answers "$result") || fail "could not read the captured non-answers"
+  assert_contains "$out" "sample-note-only-call	I don't understand this question	Vendor -> I don't understand this question	keep" \
+    "a note-only answer was not relayed as keep-open: $out"
+  assert_contains "$out" "sample-keep-open-call	after the demo	Ship now or wait -> keep-open - after the demo	keep" \
+    "an annotated keep-open choice was not relayed with its note: $out"
+  assert_contains "$out" "sample-kept-work	(no note)	Gated work -> keep-open	keep" \
+    "keep-open did not override the card's release mode: $out"
+
+  set +e
+  out=$(run_lavish "$home" answers "$result" \
+    | FM_CAPTAIN_HOLD_NOW=2026-11-23T02:00:00Z \
+      run_captain "$home" answers --source "board sequence 1" 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "keeping calls open reported a failure: $out"
+  assert_contains "$out" "kept: sample-note-only-call" "the note-only call was not kept open: $out"
+  assert_contains "$out" "kept: sample-keep-open-call" "the keep-open call was not kept open: $out"
+  assert_contains "$out" "kept: sample-kept-work" "the gated work was not kept open: $out"
+  assert_not_contains "$out" "closed:" "a non-answer closed a captain call: $out"
+
+  show=$(tasks_in "$home" show sample-note-only-call --full)
+  assert_contains "$show" "state: queued" "a note-only answer closed the captain call"
+  assert_contains "$show" "held: yes" "a note-only answer released the captain call"
+  assert_contains "$show" 'Captain hold kept open: 2026-11-23T02:00:00Z (board sequence 1)\nI don'"'"'t understand this question' \
+    "the captain's note was not saved on the call with its date"
+  assert_not_contains "$show" "Resolution mode:" "a note-only answer wrote a resolution record"
+  show=$(tasks_in "$home" show sample-keep-open-call --full)
+  assert_contains "$show" "state: queued" "keep-open closed the captain call"
+  assert_contains "$show" "held: yes" "keep-open released the captain call"
+  assert_contains "$show" 'Captain hold kept open: 2026-11-23T02:00:00Z (board sequence 1)\nafter the demo' \
+    "the keep-open note was not saved on the call"
+  show=$(tasks_in "$home" show sample-kept-work --full)
+  assert_contains "$show" "state: queued" "keep-open closed the gated work"
+  assert_contains "$show" "held: yes" "keep-open let held work go ahead"
+  assert_contains "$show" 'Captain hold kept open: 2026-11-23T02:00:00Z (board sequence 1)\n(no note)' \
+    "a bare keep-open did not record its dated line"
+  assert_contains "$show" "Gated work plan." "keeping work open lost its body"
+
+  # A replay of the same delivery adds nothing.
+  out=$(run_lavish "$home" answers "$result" \
+    | FM_CAPTAIN_HOLD_NOW=2026-11-23T03:00:00Z \
+      run_captain "$home" answers --source "board sequence 1" 2>&1) \
+    || fail "replaying kept-open answers reported a failure: $out"
+  assert_contains "$out" "kept: sample-note-only-call" "a replayed note-only answer was not reported: $out"
+  count=$(tasks_in "$home" show sample-note-only-call --full | grep -o 'Captain hold kept open:' | wc -l | tr -d ' ')
+  [ "$count" = 1 ] || fail "a replayed delivery saved the same note $count times"
+  count=$(tasks_in "$home" show sample-kept-work --full | grep -o 'Captain hold kept open:' | wc -l | tr -d ' ')
+  [ "$count" = 1 ] || fail "a replayed bare keep-open was saved $count times"
+
+  # The same words on a later, separate delivery add their own dated line.
+  out=$(run_lavish "$home" answers "$result" \
+    | FM_CAPTAIN_HOLD_NOW=2026-11-23T03:30:00Z \
+      run_captain "$home" answers --source "board sequence 2" 2>&1) \
+    || fail "a later delivery of the same words reported a failure: $out"
+  show=$(tasks_in "$home" show sample-kept-work --full)
+  count=$(printf '%s\n' "$show" | grep -o 'Captain hold kept open:' | wc -l | tr -d ' ')
+  [ "$count" = 2 ] || fail "a later bare keep-open was not saved with its own date (found $count notes)"
+  assert_contains "$show" 'Captain hold kept open: 2026-11-23T03:30:00Z (board sequence 2)\n(no note)' \
+    "a later bare keep-open did not record its own dated line"
+  show=$(tasks_in "$home" show sample-note-only-call --full)
+  assert_contains "$show" 'Captain hold kept open: 2026-11-23T03:30:00Z (board sequence 2)\nI don'"'"'t understand this question' \
+    "the same note on a later delivery was not saved with its own date"
+  printf 'sample-note-only-call\tplease explain the options\t\tkeep\n' \
+    | FM_CAPTAIN_HOLD_NOW=2026-11-23T04:00:00Z \
+      run_captain "$home" answers --source "captain chat" >/dev/null \
+    || fail "a second, different note was refused"
+  show=$(tasks_in "$home" show sample-note-only-call --full)
+  count=$(printf '%s\n' "$show" | grep -o 'Captain hold kept open:' | wc -l | tr -d ' ')
+  [ "$count" = 3 ] || fail "a different later note was not added (found $count notes)"
+  assert_contains "$show" 'Captain hold kept open: 2026-11-23T04:00:00Z (captain chat)\nplease explain the options' \
+    "the later note was not saved with its own date"
+  assert_contains "$show" "held: yes" "a later note released the captain call"
+  pass "keep-open and note-only board answers keep the call open and save the captain's words"
+}
+
 # Answer-time closure is opt-in per source. A channel with no binding must behave
 # exactly as it always did: capture, announce, close nothing.
 # A reconcile is "go re-check reality", never the captain's answer. The value is
@@ -2622,6 +2729,7 @@ test_secondmate_hold_stays_in_authoritative_home
 test_secondmate_home_publishes_holds_and_answers
 test_secondmate_reconcile_publishes_before_request_retirement
 test_bound_channel_answers_close_at_answer_time
+test_board_non_answers_keep_the_call_open
 test_reconcile_never_closes_through_the_keyed_answer_intake
 test_normal_answers_retire_pending_reconcile_requests
 test_reconcile_closes_with_evidence_or_keeps_the_call_open

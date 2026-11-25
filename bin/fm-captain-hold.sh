@@ -91,7 +91,10 @@
 # identically no matter which channel the answer arrived on. The key IS the
 # task id - no identity arithmetic. The optional fourth field selects the close:
 # empty or `done` completes the task, `release` lifts the hold so held work
-# resumes; anything else is skipped. A `release` line while the away-posture
+# resumes, and `keep` closes nothing - it appends one dated
+# `Captain hold kept open:` note carrying the answer text, leaves the hold in
+# place, and reports `kept:` (a replay of the same delivery is a no-op);
+# anything else is skipped. A `release` line while the away-posture
 # record exists is reported as `refused:` under the same attended-only rule as
 # `answer --release` and feeds nothing. A key that names no task, a task that is
 # not held for the captain, or a task already closed is reported as `skipped:`
@@ -1554,10 +1557,54 @@ sanitize_reconcile_provenance() {
   printf '%s' "$1" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177' | cut -c1-1024
 }
 
+# The keep-open outcome: record the captain's words on a still-open captain
+# call with a dated line and leave the hold exactly as it was. A replay of the
+# same delivery (same source and words) adds nothing; any other delivery adds
+# its own dated line, even with identical words.
+# Returns nonzero with KEEP_REASON set when the call is not an open captain call
+# or the note could not be recorded.
+KEEP_REASON=
+keep_open_record() {  # <task-id> <source> <words>
+  local id=$1 source=$2 words=$3 show body stamp tmp status=0
+  KEEP_REASON=
+  task_show "$id" || status=$?
+  if [ "$status" -ne 0 ]; then
+    [ "$status" -ne 124 ] || fail "the backlog backend exceeded its read bound reading $id"
+    KEEP_REASON=absent
+    return 1
+  fi
+  show=$TASK_SHOW_OUTPUT
+  [ "$(show_field "$show" state)" != "done" ] || { KEEP_REASON='already closed'; return 1; }
+  [ "$(show_field_value "$show" hold_kind)" = captain ] \
+    || { KEEP_REASON='not held for the captain'; return 1; }
+  body=$(decode_shown_value "$(show_field "$show" body)") \
+    || { KEEP_REASON='could not decode the existing body'; return 1; }
+  if printf '%s\n' "$body" | KEEP_WORDS=$words KEEP_TAIL=" ($source)" awk '
+      BEGIN { tail = ENVIRON["KEEP_TAIL"] }
+      prev ~ /^Captain hold kept open: / && length(prev) > length(tail) \
+        && substr(prev, length(prev) - length(tail) + 1) == tail \
+        && $0 == ENVIRON["KEEP_WORDS"] { found = 1 }
+      { prev = $0 }
+      END { exit !found }'; then
+    return 0
+  fi
+  stamp=${FM_CAPTAIN_HOLD_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-keep.XXXXXX") \
+    || { KEEP_REASON='cannot stage the kept-open note'; return 1; }
+  if ! printf '%s\n\nCaptain hold kept open: %s (%s)\n%s\n' "$body" "$stamp" "$source" "$words" > "$tmp" \
+    || ! tasks_axi update "$id" --body-file "$tmp" --archive-body >/dev/null; then
+    rm -f -- "$tmp"
+    KEEP_REASON='could not record the kept-open note'
+    return 1
+  fi
+  rm -f -- "$tmp"
+  command_open "$id" || { KEEP_REASON='recording the kept-open note released the call'; return 1; }
+}
+
 command_answers() {
   local origin='' source='' row rest key answer label mode id show state hold_kind body digest legacy_digest legacy_key
-  local recorded_digest recorded_mode occurrence tmp err closed=0 skipped=0 reason release_flag tab=$'\t'
-  local resolve_rc
+  local recorded_digest recorded_mode occurrence tmp err closed=0 kept=0 skipped=0 reason release_flag tab=$'\t'
+  local resolve_rc keep
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --source) shift; source=${1:-} ;;
@@ -1599,9 +1646,11 @@ command_answers() {
       continue
     fi
     release_flag=''
+    keep=0
     case "${mode:-}" in
       ''|done) : ;;
       release) release_flag=--release ;;
+      keep) keep=1 ;;
       *)
         printf 'skipped: %s (unknown close mode %s)\n' "$key" "$(sanitize_field "$mode")"
         skipped=$((skipped + 1))
@@ -1631,6 +1680,18 @@ command_answers() {
         || fail "the backlog backend exceeded its read bound resolving $key"
       printf 'skipped: %s (no captain-held task with that id)\n' "$key"
       skipped=$((skipped + 1))
+      continue
+    fi
+    if [ "$keep" = 1 ]; then
+      acquire_task_control_lock "$id"
+      if keep_open_record "$id" "$source" "$answer"; then
+        printf 'kept: %s\n' "$id"
+        kept=$((kept + 1))
+      else
+        printf 'skipped: %s (%s)\n' "$id" "$KEEP_REASON"
+        skipped=$((skipped + 1))
+      fi
+      release_task_control_lock || fail "cannot release task control for $id"
       continue
     fi
     keyed_decision_text "$source" "$id" "$answer" "$label" > "$tmp" \
@@ -1698,7 +1759,7 @@ command_answers() {
     fi
   done
   rm -f -- "$tmp" "$err"
-  printf 'answers: closed=%s skipped=%s\n' "$closed" "$skipped"
+  printf 'answers: closed=%s kept=%s skipped=%s\n' "$closed" "$kept" "$skipped"
   [ "$skipped" -eq 0 ]
 }
 

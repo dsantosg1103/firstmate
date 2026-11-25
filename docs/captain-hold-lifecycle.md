@@ -220,6 +220,7 @@ The optional mode column carries a card-declared close:
 | --- | --- |
 | `done` (default) | Completes the task. |
 | `release` | Lifts the hold so held work resumes. |
+| `keep` | Closes nothing; see [Keep it open](#keep-it-open-the-captains-words-not-an-answer). |
 | Any other value | Skipped. |
 
 Each key is reported as follows:
@@ -229,6 +230,7 @@ Each key is reported as follows:
 | Names no task, names a task that is not captain-held, or names a task already closed | Reported as `skipped:` and feeds nothing. |
 | A replay whose answer and requested close mode match the newest record | An idempotent `closed:`. |
 | A replay with a mode mismatch | Skipped. |
+| A `keep` row for an open captain-held task, including words already kept on it | `kept:`. |
 
 The command exits nonzero when any key was skipped.
 `--source` is provenance text recorded in the durable decision, never a behavior switch, and the command carries no per-channel branch.
@@ -257,10 +259,21 @@ Two channels feed that one intake today, and both are ordinary callers rather th
 - The runner names no adapter, parses no result, and carries no decision rule.
 
 `bin/fm-procevent-lavish.sh answers` is one such built-in adapter command.
-It reads only rows tagged `choice` and relays a card's declared close mode.
+It reads only rows tagged `choice` and relays a card's declared close mode, except that a keep-open selection or a note with no selection becomes a `keep` row.
 It can never let freeform captain prose forge a task id or a mode.
 
 Trusted external process-event adapters intentionally expose no answer operation and cannot feed this authority-bearing intake; [`extension-bindings.md`](extension-bindings.md#trust-boundary) owns that boundary.
+
+### Keep it open: the captain's words, not an answer
+
+Two board answers are not final answers, so neither closes the call.
+The first is the standard `keep-open` choice ("Keep it open") that `bin/fm-bearings-board.sh build` adds to every decision card, reserving the value across every card type the same way it reserves `reconcile`.
+The second is a note typed without choosing any option, which is an instruction to read rather than a selection.
+The Lavish adapter emits either as a `keep` row whose answer is the note, or `(no note)` for a bare Keep it open, overriding any card-declared `release`.
+The intake appends one dated `Captain hold kept open: <UTC> (<source>)` line followed by those words to the task body, leaves the hold and state unchanged, writes no resolution record, and reports `kept:`.
+A replay of the same delivery (same source and words) adds nothing, while every later delivery adds its own dated note, even with identical words.
+The wake still carries the capture, and firstmate reads the words and follows up by hand.
+The rollout-compatible old board context cannot separate a note from a selection, so it keeps its earlier behavior.
 
 ## Reconcile: re-check reality, never a blind close
 
@@ -288,7 +301,7 @@ The Lavish adapter splits each capture between two commands:
 
 | Command | What it emits |
 | --- | --- |
-| `bin/fm-procevent-lavish.sh answers` | An exact non-reconcile selection, or a bare note when no option was selected. |
+| `bin/fm-procevent-lavish.sh answers` | An exact non-reconcile selection, or a `keep` row for a keep-open selection or a note with no selection. |
 | `reconciles` | Only task ids whose structured selection is Reconcile, carrying their notes as request provenance. |
 
 Current rows require the versioned shape and the `choice` tag.
@@ -640,6 +653,7 @@ The captured-source coverage proves:
 - Lavish deduplicates each card before separating versioned structured selections from notes.
 - Bare and annotated Reconcile choices never reach keyed answers.
 - Genuine current and legacy choices still close normally.
+- A Keep it open choice or a note-only answer is saved as a dated note and leaves the call open.
 - Legacy bare and separator-annotated reconcile values feed neither intake.
 - Mixed repeated selections preserve every other card's final value.
 - The generic runner creates a request only through a verified bound source.
@@ -650,8 +664,8 @@ The captured-source coverage proves:
 
 The board's half is pinned in `tests/fm-bearings-board.test.sh`:
 
-- Every published decision card carries exactly one reconcile option.
-- Authored options reserve that value across every card type.
+- Every published decision card carries exactly one Keep it open option and exactly one reconcile option.
+- Authored options reserve both values across every card type.
 - Recommendations name authored options.
 - A decision card whose structured subject appears in the payload's landed rows is dropped.
   A genuinely open one is kept even when an unrelated landed id contains its key after a newline.
