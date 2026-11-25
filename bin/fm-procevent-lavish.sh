@@ -88,8 +88,9 @@
 #
 # A page is kept open while its task still has an open captain call (bin/
 # fm-captain-hold.sh open --with-origin: the task itself, or any call recorded
-# with the task as its origin) and its file still exists; a page whose file is
-# gone is already broken and is closed, the call staying in the backlog. The
+# with the task as its origin), its session is still open, and its file still
+# exists; a page whose session already ended or whose file is gone is closed
+# (never kept or saved), the call staying in the backlog. The
 # sweep also leaves a page alone while its task is still running (state/<id>
 # .meta present) and its file exists. When close-task has --save-into and a
 # kept page lives under a root other than that directory - the copy about to
@@ -1379,9 +1380,10 @@ close_save_page() {  # <key> <owner> <save-into>
 
 # Decide and act on one page. <mode> is task (close-task) or sweep.
 close_consider() {  # <mode> <key> <owner> <evidence> [save-into] [root...]
-  local mode=$1 key=$2 owner=$3 evidence=$4 into=${5-} url file label src calls result seq root doomed=0
+  local mode=$1 key=$2 owner=$3 evidence=$4 into=${5-} url status file label src calls result seq root doomed=0
   shift 5 2>/dev/null || shift "$#"
   url=$(close_session_field "$key" 3)
+  status=$(close_session_field "$key" 2)
   file=$(close_session_field "$key" 4)
   label=${url:-lavish-$key}
   src=$(close_source_owner "$key")
@@ -1404,7 +1406,7 @@ close_consider() {  # <mode> <key> <owner> <evidence> [save-into] [root...]
   if [ "$mode" = sweep ] && [ "$evidence" = path ] && [ "$calls" = 3 ]; then
     return 0
   fi
-  if { [ "$calls" = 0 ] || [ "$calls" = 2 ]; } && [ -n "$file" ] && [ -e "$file" ]; then
+  if { [ "$calls" = 0 ] || [ "$calls" = 2 ]; } && [ "$status" = open ] && [ -n "$file" ] && [ -e "$file" ]; then
     if [ -n "$into" ] && ! close_under "$file" "$into"; then
       for root in "$@"; do
         if close_under "$file" "$root"; then doomed=1; break; fi

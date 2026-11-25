@@ -5458,6 +5458,31 @@ if [ "$tasks_rc" -eq 0 ]; then
   assert_contains "$out" "$H/worktree-crew-f/.lavish/decision.html" "the save refusal names the page"
   [ "$(close_status "$H" "$key")" = open ] || fail "a failed save still ended the page"
   pass "a page that cannot be saved stops close-task with a message"
+
+  # An already-ended page inside a copy being deleted is never saved or kept,
+  # even while its task has an open call; an open page beside it still is.
+  H=$(close_home save-ended)
+  close_env "$H" tasks-axi add crew-e "Crew with a question" --kind task --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" crew-e-call crew-e
+  ended_key=$(close_page "$H" "$H/worktree-crew-e/.lavish/old.html")
+  key=$(close_page "$H" "$H/worktree-crew-e/.lavish/new.html")
+  close_env "$H" lavish-axi end "$H/worktree-crew-e/.lavish/old.html" >/dev/null \
+    || fail "fixture: could not end crew-e's old board"
+  : > "$CLOSE_LOG"
+  rc=0
+  out=$(close_run "$H" close-task crew-e --root "$H/worktree-crew-e" --root "$H/data/crew-e" \
+    --save-into "$H/data/crew-e" 2>&1) || rc=$?
+  expect_code 0 "$rc" "close-task beside an already-ended page"
+  [ ! -e "$H/data/crew-e/old.html" ] || fail "close-task copied an already-ended page out of the copy"
+  [ "$(close_logged open "$ended_key")" = 0 ] || fail "close-task reopened a page the captain already ended"
+  case "$out" in
+    *"saved: http://127.0.0.1:14399/session/$ended_key"*|*"kept: http://127.0.0.1:14399/session/$ended_key"*)
+      fail "close-task saved or kept an already-ended page: $out" ;;
+  esac
+  [ "$(close_status "$H" "$ended_key")" = ended ] || fail "the already-ended page did not stay ended"
+  [ -f "$H/data/crew-e/new.html" ] || fail "close-task did not save the open page beside the ended one"
+  assert_contains "$out" "saved: http://127.0.0.1:14399/session/$key" "close-task still saves the open page"
+  pass "close-task never saves or reopens an already-ended page inside a copy being deleted"
 fi
 
 # The sweep closes a page whose task is gone and a page whose file is gone (by
@@ -5609,6 +5634,40 @@ if [ "$tasks_rc" -eq 0 ]; then
   [ "$(close_status "$H" "$key")" = ended ] || fail "answering the last open call left the page open"
   [ "$(close_logged tab "/session/$key")" = 1 ] || fail "answering the last open call left the page's tab"
   pass "answering a task's last open captain call closes its page, and one of two does not"
+
+  # A released hold means that work resumes: answering with --release leaves
+  # the task's page open and listening; a plain answer of a running task's last
+  # open call still closes it.
+  H=$(close_home answer-release)
+  new_task_endpoint "$H" crew-r
+  close_env "$H" tasks-axi add crew-r "Running crew" --kind task --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" crew-r-call crew-r
+  key=$(close_page "$H" "$H/data/crew-r/plan.html")
+  close_run "$H" arm "$H/data/crew-r/plan.html" --for crew-r >/dev/null \
+    || fail "fixture: could not arm crew-r's board"
+  printf 'Carry on with the plan.\n' > "$H/decision.txt"
+  : > "$CLOSE_LOG"
+  close_env "$H" "$ROOT/bin/fm-captain-hold.sh" answer crew-r-call --decision-file "$H/decision.txt" --release >/dev/null 2>&1 \
+    || fail "fixture: releasing the call failed"
+  [ "$(close_status "$H" "$key")" = open ] || fail "answering with --release closed the page of resuming work"
+  [ -e "$H/state/procevent/lavish-$key.source" ] || fail "answering with --release retired the page's listener"
+  [ ! -s "$CLOSE_LOG" ] || fail "answering with --release acted on the page: $(cat "$CLOSE_LOG")"
+  pass "answering with --release leaves the resuming task's page open and listening"
+
+  H=$(close_home answer-running)
+  new_task_endpoint "$H" crew-n
+  close_env "$H" tasks-axi add crew-n "Running crew" --kind task --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" crew-n-call crew-n
+  key=$(close_page "$H" "$H/data/crew-n/plan.html")
+  close_run "$H" arm "$H/data/crew-n/plan.html" --for crew-n >/dev/null \
+    || fail "fixture: could not arm crew-n's board"
+  printf 'Carry on with the plan.\n' > "$H/decision.txt"
+  : > "$CLOSE_LOG"
+  close_env "$H" "$ROOT/bin/fm-captain-hold.sh" answer crew-n-call --decision-file "$H/decision.txt" >/dev/null 2>&1 \
+    || fail "fixture: answering the call failed"
+  [ "$(close_status "$H" "$key")" = ended ] || fail "a plain answer of a running task's last open call left its page open"
+  [ ! -e "$H/state/procevent/lavish-$key.source" ] || fail "a plain answer of the last open call left the page's listener"
+  pass "a plain answer of a running task's last open call still closes its page"
 fi
 
 printf '\nall procevent tests passed\n'

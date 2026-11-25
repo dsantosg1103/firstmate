@@ -1350,7 +1350,8 @@ remove_interrupted_answer_stamp() {  # <task-id>
 # task and for its recorded origin, after the answer is durable. Best effort: a
 # page that cannot close is reported on stderr and never undoes the answer.
 # Skipped inside a process-event runner, whose own captured round is still
-# waiting for its handler.
+# waiting for its handler, and for `answer --release`: a released hold means
+# that work resumes, so its page stays open until teardown or the sweep.
 close_answered_pages() {  # <task-id>
   local id=$1 owner owners body meta wt out status
   [ -z "${FM_PROCEVENT_IN_RUNNER:-}" ] || return 0
@@ -1382,8 +1383,12 @@ close_answered_pages() {  # <task-id>
 }
 
 command_answer() {
+  local arg
   command_answer_record "$@"
   release_task_control_lock
+  for arg in "$@"; do
+    [ "$arg" != --release ] || return 0
+  done
   close_answered_pages "${1:-}"
 }
 
