@@ -1,0 +1,72 @@
+== lavish-axi 0.1.98 on 127.0.0.1:56963, lab home /private/tmp/fm-lab.I4vnr9/home
+
+== S1 close-task closes a finished task's page whose file exists
+opened key=f54b64afd38dac80 status=open
+rc=0 out: closed: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/f54b64afd38dac80 (task crew-a)
+status after=ended
+tab /session/f54b64afd38dac80
+RESULT S1: pass
+second run rc=0 out: 'closed: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/f54b64afd38dac80 (task crew-a)'
+RESULT S1-idempotent: fail
+
+== S2 open captain call keeps the page; answering the last call closes it
+close-task with open call rc=0 out: kept: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/06a838b5c6137103 (task scout-b still has an open captain call)
+status=open
+answered: scout-b-call
+closed: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/06a838b5c6137103 (task scout-b)
+status after answer=ended
+tab /session/06a838b5c6137103
+RESULT S2: pass
+
+== S3 --release answer leaves the page open
+status after --release=open
+RESULT S3: pass
+
+== S4 decision 4: open-call page inside a copy being deleted is saved into data/<id>/
+rc=0 out: closed: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/2b0454c612be8f13 (task crew-s)
+saved: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/2b0454c612be8f13 -> http://mac-mini-de-daniel.tail764852.ts.net:56963/session/767599bb331a84d0 (/private/tmp/fm-lab.I4vnr9/home/data/crew-s/plan.html; task crew-s still has an open captain call; give the captain the new link)
+plan.html
+old=2b0454c612be8f13 ended new=767599bb331a84d0 open
+RESULT S4: pass
+
+== S5 close-sweep ends a finished task's page whose file is gone (POST /api/<key>/end, real server)
+rc=0 out: closed: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/74cdb428d5467a8e (task crew-g)
+kept: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/767599bb331a84d0 (task crew-s still has an open captain call)
+status=ended
+RESULT S5: pass
+
+== S6 sweep leaves a running task's page alone
+status=open
+RESULT S6: pass
+
+== S7 adversarial: report opened after task finished survives sweeps; a page close-task left open is swept
+kept: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/9af8d15090ebe832 (task scout-r still has an open captain call)
+plan after release=open
+plan=ended report=open
+RESULT S7: pass
+
+== S8 adversarial: closed page reopened at the same path after finish survives sweeps
+reopened crew-a plan key=f54b64afd38dac80 status=open
+status=open
+RESULT S8: pass
+
+== S9 adversarial: Chrome automation denied - pages still close, no retry records, one notice per home
+rc=0 out: closed: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/5dfb3fb0365851e9 (task crew-t)
+closed: http://mac-mini-de-daniel.tail764852.ts.net:56963/session/f68a7e361388b936 (task crew-t)
+status=ended/ended tab attempts first=2 after-sweeps=2 failed-records=0 tab-notices=1
+wake: lavish-close:chrome:tabs:1 | check: Firstmate could not close a finished Lavish page's Chrome tab on this Mac (Chrome automation may not be permitted for the terminal, or Chrome did not answer). Pages are still ended; close lefto
+RESULT S9: pass
+
+== S10 missing lavish-axi is a silent no-op
+rc=0 out='' sweep rc=0 out=''
+RESULT S10: pass
+
+== tab log
+tab /session/f54b64afd38dac80
+tab /session/f54b64afd38dac80
+tab /session/06a838b5c6137103
+tab /session/2b0454c612be8f13
+tab /session/74cdb428d5467a8e
+tab /session/9af8d15090ebe832
+tab-fail /session/5dfb3fb0365851e9
+tab-fail /session/f68a7e361388b936
