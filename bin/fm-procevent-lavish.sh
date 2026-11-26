@@ -1328,6 +1328,7 @@ close_finish_page() {  # <mode> <key> <owner>
   fi
   if [ -z "$failed" ]; then
     close_record_clear "$key"
+    close_task_pages_forget "$owner" "$key"
     printf 'closed: %s (task %s)\n' "$label" "$owner"
     return 0
   fi
@@ -1409,6 +1410,7 @@ close_consider() {  # <mode> <key> <owner> <evidence> [save-into] [root...]
   file=$(close_session_field "$key" 4)
   label=${url:-lavish-$key}
   src=$(close_source_owner "$key")
+  [ "$mode" != task ] || close_task_pages_note "$owner" "$key"
   # The sweep leaves a running task's page alone unless its file is known gone.
   if [ "$mode" = sweep ] && [ -f "$STATE/$owner.meta" ]; then
     [ -n "$file" ] && [ ! -e "$file" ] || return 0
@@ -1449,14 +1451,28 @@ close_task_pages_file() {  # <task-id>
   printf '%s/task-%s.pages\n' "$CLOSE_STATE_DIR" "$1"
 }
 
-# Remember which pages close-task saw for a task, so the sweep closes only
-# folder pages that already existed then.
+# Remember which pages close-task saw for a task and left open, so the sweep
+# closes only folder pages that already existed then; a closed page is
+# forgotten, so reopening it later makes a new page.
 close_task_pages_note() {  # <task-id> <key>...
   local file
   [ "$#" -ge 2 ] || return 0
   file=$(close_task_pages_file "$1")
   shift
   (umask 077; mkdir -p "$CLOSE_STATE_DIR" && printf '%s\n' "$@" >> "$file") 2>/dev/null || true
+}
+
+close_task_pages_forget() {  # <task-id> <key>
+  local file tmp rc=0
+  file=$(close_task_pages_file "$1")
+  close_task_page_seen "$1" "$2" || return 0
+  tmp=$(umask 077; mktemp "$CLOSE_STATE_DIR/.task-pages.XXXXXX") || return 0
+  grep -Fxv -- "$2" "$file" > "$tmp" 2>/dev/null || rc=$?
+  case "$rc" in
+    0) mv -f -- "$tmp" "$file" ;;
+    1) rm -f -- "$tmp" "$file" ;;
+    *) rm -f -- "$tmp" ;;
+  esac
 }
 
 close_task_page_seen() {  # <task-id> <key>
@@ -1542,8 +1558,6 @@ EOF
   done 7<<EOF
 $CLOSE_SESSIONS
 EOF
-  # shellcheck disable=SC2086  # $seen holds one 16-hex key per line.
-  close_task_pages_note "$task" $seen
   [ "$CLOSE_REFUSED" = 0 ] || exit 3
 }
 

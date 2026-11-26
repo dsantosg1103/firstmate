@@ -5746,6 +5746,21 @@ RACE
   [ "$(close_status "$H" "$report_key")" = open ] || fail "the sweep ended a page opened after its task finished"
   [ "$(close_logged tab "/session/$report_key")" = 0 ] || fail "the sweep closed the tab of a page opened after its task finished"
   pass "close-sweep closes a page that existed before its task finished and leaves one opened after"
+
+  # A page close-task already closed, reopened at the same path after its task
+  # finished, is a new page the sweep leaves alone.
+  H=$(close_home reopen)
+  close_env "$H" tasks-axi add scout-o "Finished scout" --kind scout --file "$H/data/backlog.md" >/dev/null
+  key=$(close_page "$H" "$H/data/scout-o/plan.html")
+  out=$(close_run "$H" close-task scout-o --root "$H/data/scout-o" 2>&1) || fail "close-task of scout-o failed: $out"
+  assert_contains "$out" "closed: http://127.0.0.1:14399/session/$key" "close-task closes scout-o's page"
+  close_env "$H" lavish-axi "$H/data/scout-o/plan.html" >/dev/null || fail "fixture: could not reopen scout-o's page"
+  : > "$CLOSE_LOG"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the reopen sweep failed"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the repeated reopen sweep failed"
+  [ "$(close_status "$H" "$key")" = open ] || fail "the sweep ended a page reopened after its task finished"
+  [ ! -s "$CLOSE_LOG" ] || fail "the sweep acted on a page reopened after its task finished: $(cat "$CLOSE_LOG")"
+  pass "close-sweep leaves a closed page reopened at the same path after its task finished"
 fi
 
 printf '\nall procevent tests passed\n'
