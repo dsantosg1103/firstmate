@@ -82,10 +82,11 @@
 # lies under one of close-task's --root directories (compared by full real
 # path) or, for the sweep, under this home's data/<task-id>/ for a task this
 # home's backlog knows. The sweep closes such a folder-only page only when its
-# file is gone or an earlier close-task for that task already saw it (recorded
-# in state/lavish-close/task-<id>.pages), so a page opened after the task
-# finished, such as its report shown to the captain, is left alone. If a listener and a folder name different tasks, the
-# page is left alone and Firstmate is told once. A page with no such record is
+# file is gone or an earlier close-task for that task saw it and left it open
+# (recorded in state/lavish-close/task-<id>.pages), so a page opened after the
+# task finished, such as its report shown to the captain, or a closed page
+# reopened at the same path, is left alone. If a listener and a folder name
+# different tasks, the page is left alone and Firstmate is told once. A page with no such record is
 # never touched, which is what keeps other homes' and projects' pages safe.
 # The bearings board is never a sweep candidate.
 #
