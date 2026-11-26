@@ -5292,4 +5292,475 @@ PATH="$UNDISP/bin:$PATH" FM_HOME="$UNDISP/home" \
   "$ROOT/bin/fm-procevent-lavish.sh" retire "$undisp_art" >/dev/null 2>&1 || true
 pass "arm does not launch beside a stale claim whose process group is alive"
 
+# --- plan pages close themselves ---------------------------------------------
+# A finished task's Lavish page is ended and its exact Chrome tab closed by
+# fm-procevent-lavish.sh close-task and close-sweep, never a page still waiting
+# on an open captain call, never one carrying unread captain words, and never a
+# page this home holds no record of. Every case runs against the stand-in
+# Lavish, curl, and osascript in tests/lavish-close-helpers.sh, so no real page,
+# server, or browser tab is touched.
+CLOSE="$TMP_ROOT/close"
+CLOSE_BIN=$(fm_fakebin "$CLOSE")
+CLOSE_LOG="$CLOSE/actions.log"
+CLOSE_ROUNDS="$CLOSE/rounds"
+mkdir -p "$CLOSE_ROUNDS"
+: > "$CLOSE_LOG"
+export CLOSE_LOG CLOSE_ROUNDS
+
+# shellcheck source=tests/lavish-close-helpers.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lavish-close-helpers.sh"
+fm_lavish_close_fakes "$CLOSE_BIN"
+
+close_home() {  # <name>: a fresh home with its own Lavish store and, with tasks-axi, an empty backlog
+  local home="$CLOSE/$1"
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/lavish"
+  if command -v tasks-axi >/dev/null 2>&1; then
+    fm_test_tasks_toml "$home/.tasks.toml"
+    printf '%s\n' '## In flight' '' '## Queued' '' '## Done' > "$home/data/backlog.md"
+  fi
+  fm_test_track_procevent_home "$home"
+  printf '%s\n' "$home"
+}
+close_env() {  # <home> <command...>: run a command against <home> and its Lavish store
+  local home=$1
+  shift
+  PATH="$CLOSE_BIN:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    LAVISH_AXI_STATE_DIR="$home/lavish" "$@"
+}
+close_run() { local home=$1; shift; close_env "$home" "$ROOT/bin/fm-procevent-lavish.sh" "$@"; }
+close_key() { fm_lavish_close_key "$1"; }
+close_page() {  # <home> <file>: write a page and open its Lavish session; prints its key
+  mkdir -p "$(dirname "$2")"
+  printf '<h1>plan</h1>\n' > "$2"
+  close_env "$1" lavish-axi "$2" >/dev/null || fail "fixture: could not open $2"
+  close_key "$2"
+}
+close_status() { fm_lavish_close_status "$1/lavish" "$2" "$CLOSE_BIN"; }
+close_logged() { grep -c "^$1 .*$2" "$CLOSE_LOG" || true; }
+close_hold() {  # <home> <task> <origin>: hold a captain call recorded for <origin>
+  close_env "$1" "$ROOT/bin/fm-captain-hold.sh" hold "$2" --title "Captain call $2" \
+    --reason "captain must decide $2" --repo sample --origin "$3" >/dev/null \
+    || fail "fixture: could not hold $2 for the captain"
+}
+close_wakes() { awk -F '\t' '$3 == "check" && index($4, "lavish-close:") == 1 { print $4 }' "$1/state/.wake-queue" 2>/dev/null || true; }
+
+# A finished task's board closes completely: its listener is retired, its
+# session is ended through Lavish, and only its own tab is closed.
+H=$(close_home finished)
+new_task_endpoint "$H" crew-a
+key=$(close_page "$H" "$H/data/crew-a/plan.html")
+other_key=$(close_page "$H" "$H/data/crew-b/plan.html")
+close_run "$H" arm "$H/data/crew-a/plan.html" --for crew-a >/dev/null \
+  || fail "fixture: could not arm crew-a's board"
+rc=0
+out=$(close_run "$H" close-task crew-a --root "$H/data/crew-a" 2>&1) || rc=$?
+expect_code 0 "$rc" "close-task of a finished task's board"
+assert_contains "$out" "closed: http://127.0.0.1:14399/session/$key" "close-task names the page it closed"
+[ "$(close_status "$H" "$key")" = ended ] || fail "close-task left the finished task's session open"
+[ "$(close_logged end "$key")" = 1 ] || fail "close-task did not end the page through lavish-axi end"
+[ "$(close_logged tab "/session/$key")" = 1 ] || fail "close-task did not close the page's own tab"
+[ "$(close_logged tab "/session/$other_key")" = 0 ] || fail "close-task closed another task's tab"
+[ "$(close_status "$H" "$other_key")" = open ] || fail "close-task ended another task's page"
+[ ! -e "$H/state/procevent/lavish-$key.source" ] || fail "close-task left the finished board's listener registered"
+pass "close-task ends a finished task's page, retires its listener, and closes only its own tab"
+
+# Unread captain words stop the close and name the round; nothing is lost.
+H=$(close_home unread)
+new_task_endpoint "$H" crew-c
+key=$(close_page "$H" "$H/data/crew-c/plan.html")
+close_run "$H" arm "$H/data/crew-c/plan.html" --for crew-c >/dev/null \
+  || fail "fixture: could not arm crew-c's board"
+printf '%s\n' "$FM_LAVISH_CLOSE_WORDS_ROUND" > "$CLOSE_ROUNDS/$key"
+wait_for "$H/state/crew-c.inbox/001.msg" 200 || fail "fixture: the captain's round never reached crew-c"
+rc=0
+out=$(close_run "$H" close-task crew-c --root "$H/data/crew-c" 2>&1) || rc=$?
+expect_code 3 "$rc" "close-task with an unread captain round"
+assert_contains "$out" "lavish-$key 1" "the refusal names the unread round"
+assert_contains "$out" "bin/fm-procevent.sh handled lavish-$key 1" "the refusal names the acknowledgement that releases it"
+[ "$(close_status "$H" "$key")" = open ] || fail "close-task ended a page whose captain words were never read"
+[ -e "$H/state/procevent/lavish-$key.source" ] || fail "close-task retired a board whose captain words were never read"
+[ ! -e "$H/state/procevent-inbox/lavish-$key.1.handled" ] || fail "close-task acknowledged the captain's unread words"
+[ "$(close_logged tab "/session/$key")" = 0 ] || fail "close-task closed the tab of a page with unread words"
+pass "close-task refuses a page with unread captain words and names the round"
+
+# A failure-only round carries no captain words: it is acknowledged and closed.
+H=$(close_home failure-round)
+new_task_endpoint "$H" crew-d
+key=$(close_page "$H" "$H/data/crew-d/plan.html")
+close_run "$H" arm "$H/data/crew-d/plan.html" --for crew-d >/dev/null \
+  || fail "fixture: could not arm crew-d's board"
+printf '%s\n' "$FM_LAVISH_CLOSE_FAILURE_ROUND" > "$CLOSE_ROUNDS/$key"
+wait_for "$H/state/crew-d.inbox/001.msg" 200 || fail "fixture: the failure round never reached crew-d"
+rc=0
+out=$(close_run "$H" close-task crew-d --root "$H/data/crew-d" 2>&1) || rc=$?
+expect_code 0 "$rc" "close-task with a failure-only round"
+[ -e "$H/state/procevent-inbox/lavish-$key.1.handled" ] || fail "close-task did not acknowledge the failure-only round"
+[ ! -e "$H/state/procevent/lavish-$key.source" ] || fail "close-task left the failure-only board registered"
+[ "$(close_status "$H" "$key")" = ended ] || fail "close-task left the failure-only board open"
+pass "close-task acknowledges an empty or failure-only round and closes the page"
+
+# An open captain call keeps a page whose file survives open.
+H=$(close_home held)
+key=$(close_page "$H" "$H/data/scout-h/plan.html")
+tasks_rc=0
+command -v tasks-axi >/dev/null 2>&1 || tasks_rc=1
+if [ "$tasks_rc" -eq 0 ]; then
+  close_env "$H" tasks-axi add scout-h "Held scout" --kind scout --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" scout-h-call scout-h
+  out=$(close_run "$H" close-task scout-h --root "$H/data/scout-h" 2>&1) || fail "close-task with an open call failed: $out"
+  assert_contains "$out" "kept: http://127.0.0.1:14399/session/$key" "close-task names the page it kept"
+  [ "$(close_status "$H" "$key")" = open ] || fail "close-task ended a page whose captain call is still open"
+  [ "$(close_logged tab "/session/$key")" = 0 ] || fail "close-task closed the tab of a page still waiting on the captain"
+  pass "close-task keeps a page open while a captain call for its task is open"
+else
+  printf 'skip: tasks-axi absent; open-call close guard not exercised\n'
+fi
+
+# Decision 4: a page with an open call that lives in a copy about to be deleted
+# is saved into the task's data folder, reopened there, and listened on again.
+if [ "$tasks_rc" -eq 0 ]; then
+  H=$(close_home save)
+  new_task_endpoint "$H" crew-s
+  close_env "$H" tasks-axi add crew-s "Crew with a question" --kind task --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" crew-s-call crew-s
+  key=$(close_page "$H" "$H/worktree-crew-s/.lavish/decision.html")
+  close_run "$H" arm "$H/worktree-crew-s/.lavish/decision.html" --for crew-s >/dev/null \
+    || fail "fixture: could not arm crew-s's board"
+  close_env "$H" "$ROOT/bin/fm-captain-hold.sh" bind "lavish-$key" >/dev/null \
+    || fail "fixture: could not bind crew-s's board to the answer intake"
+  rc=0
+  out=$(close_run "$H" close-task crew-s --root "$H/worktree-crew-s" --root "$H/data/crew-s" \
+    --save-into "$H/data/crew-s" 2>&1) || rc=$?
+  expect_code 0 "$rc" "close-task saving a page out of a copy being deleted"
+  [ -f "$H/data/crew-s/decision.html" ] || fail "close-task did not save the page into the task's data folder"
+  new_key=$(close_key "$H/data/crew-s/decision.html")
+  assert_contains "$out" "saved: http://127.0.0.1:14399/session/$key -> http://127.0.0.1:14399/session/$new_key" \
+    "close-task names the old and the new page address"
+  [ "$(close_status "$H" "$new_key")" = open ] || fail "the saved page was not reopened"
+  [ "$(close_status "$H" "$key")" = ended ] || fail "the page inside the copy was left open"
+  [ "$(close_logged tab "/session/$key")" = 1 ] || fail "the old page's tab was not closed"
+  [ ! -e "$H/state/procevent/lavish-$key.source" ] || fail "the old page's listener was left registered"
+  [ -e "$H/state/procevent/lavish-$new_key.source" ] || fail "the saved page has no listener"
+  [ -n "$(close_env "$H" "$ROOT/bin/fm-captain-hold.sh" binding "lavish-$new_key" 2>/dev/null)" ] \
+    || fail "the saved page's answers no longer reach the captain-call intake"
+  pass "close-task saves an open-question page out of a copy being deleted and reopens it"
+
+  # A failed save stops that task's cleanup with a message.
+  H=$(close_home save-fails)
+  close_env "$H" tasks-axi add crew-f "Crew with a question" --kind task --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" crew-f-call crew-f
+  key=$(close_page "$H" "$H/worktree-crew-f/.lavish/decision.html")
+  printf 'not a directory\n' > "$H/data/crew-f"
+  rc=0
+  out=$(close_run "$H" close-task crew-f --root "$H/worktree-crew-f" --save-into "$H/data/crew-f" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "close-task reported success although the page could not be saved"
+  assert_contains "$out" "$H/worktree-crew-f/.lavish/decision.html" "the save refusal names the page"
+  [ "$(close_status "$H" "$key")" = open ] || fail "a failed save still ended the page"
+  pass "a page that cannot be saved stops close-task with a message"
+
+  # An already-ended page inside a copy being deleted is never saved or kept,
+  # even while its task has an open call; an open page beside it still is.
+  H=$(close_home save-ended)
+  close_env "$H" tasks-axi add crew-e "Crew with a question" --kind task --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" crew-e-call crew-e
+  ended_key=$(close_page "$H" "$H/worktree-crew-e/.lavish/old.html")
+  key=$(close_page "$H" "$H/worktree-crew-e/.lavish/new.html")
+  close_env "$H" lavish-axi end "$H/worktree-crew-e/.lavish/old.html" >/dev/null \
+    || fail "fixture: could not end crew-e's old board"
+  : > "$CLOSE_LOG"
+  rc=0
+  out=$(close_run "$H" close-task crew-e --root "$H/worktree-crew-e" --root "$H/data/crew-e" \
+    --save-into "$H/data/crew-e" 2>&1) || rc=$?
+  expect_code 0 "$rc" "close-task beside an already-ended page"
+  [ ! -e "$H/data/crew-e/old.html" ] || fail "close-task copied an already-ended page out of the copy"
+  [ "$(close_logged open "$ended_key")" = 0 ] || fail "close-task reopened a page the captain already ended"
+  case "$out" in
+    *"saved: http://127.0.0.1:14399/session/$ended_key"*|*"kept: http://127.0.0.1:14399/session/$ended_key"*)
+      fail "close-task saved or kept an already-ended page: $out" ;;
+  esac
+  [ "$(close_status "$H" "$ended_key")" = ended ] || fail "the already-ended page did not stay ended"
+  [ -f "$H/data/crew-e/new.html" ] || fail "close-task did not save the open page beside the ended one"
+  assert_contains "$out" "saved: http://127.0.0.1:14399/session/$key" "close-task still saves the open page"
+  pass "close-task never saves or reopens an already-ended page inside a copy being deleted"
+fi
+
+# The sweep closes a page whose task is gone and a page whose file is gone (by
+# its own key, like the stuck Ponytail page), and leaves the bearings board.
+H=$(close_home sweep)
+new_task_endpoint "$H" crew-g
+new_task_endpoint "$H" crew-k
+gone_task_key=$(close_page "$H" "$H/data/crew-g/plan.html")
+gone_file_key=$(close_page "$H" "$H/worktree-crew-k/.lavish/ponytail.html")
+bearings_key=$(close_page "$H" "$H/.lavish/bearings-board.html")
+close_run "$H" arm "$H/data/crew-g/plan.html" --for crew-g >/dev/null || fail "fixture: arm crew-g"
+close_run "$H" arm "$H/worktree-crew-k/.lavish/ponytail.html" --for crew-k >/dev/null || fail "fixture: arm crew-k"
+rm -f "$H/state/crew-g.meta" "$H/state/crew-k.meta"
+rm -rf "$H/worktree-crew-k"
+: > "$CLOSE_LOG"
+rc=0
+out=$(close_run "$H" close-sweep 2>&1) || rc=$?
+expect_code 0 "$rc" "close-sweep"
+[ "$(close_status "$H" "$gone_task_key")" = ended ] || fail "the sweep left a finished task's page open"
+[ "$(close_logged end "$gone_task_key")" = 1 ] || fail "the sweep did not end the finished task's page through lavish-axi end"
+[ "$(close_status "$H" "$gone_file_key")" = ended ] || fail "the sweep left a page whose file is gone open"
+[ "$(close_logged curl-end "$gone_file_key")" = 1 ] || fail "the sweep did not end the gone-file page by its own key"
+grep -Fxq "curl-end $gone_file_key http://127.0.0.1:14399" "$CLOSE_LOG" \
+  || fail "the gone-file page was not ended at its saved session address"
+[ "$(close_logged tab "/session/$gone_file_key")" = 1 ] || fail "the sweep did not close the gone-file page's tab"
+[ ! -e "$H/state/procevent/lavish-$gone_task_key.source" ] || fail "the sweep left the finished task's listener"
+[ ! -e "$H/state/procevent/lavish-$gone_file_key.source" ] || fail "the sweep left the gone-file page's listener"
+[ "$(close_status "$H" "$bearings_key")" = open ] || fail "the sweep ended the bearings board"
+[ "$(close_logged tab "/session/$bearings_key")" = 0 ] || fail "the sweep closed the bearings board's tab"
+pass "close-sweep closes finished-task and gone-file pages and leaves the bearings board"
+
+# Running the sweep again changes nothing.
+: > "$CLOSE_LOG"
+out=$(close_run "$H" close-sweep 2>&1) || fail "a repeated sweep failed: $out"
+[ -z "$out" ] || fail "a repeated sweep reported work: $out"
+[ ! -s "$CLOSE_LOG" ] || fail "a repeated sweep acted again: $(cat "$CLOSE_LOG")"
+pass "close-sweep is a no-op the second time"
+
+# Pages of another home, of an untracked project path, or with no record at all
+# are never touched, even when they share this home's Lavish store.
+H=$(close_home scope)
+mkdir -p "$CLOSE/other-home/data/crew-x"
+other_home_key=$(close_page "$H" "$CLOSE/other-home/data/crew-x/plan.html")
+project_key=$(close_page "$H" "$CLOSE/project/.lavish/notes.html")
+unknown_key=$(close_page "$H" "$H/data/notes-folder/page.html")
+: > "$CLOSE_LOG"
+out=$(close_run "$H" close-sweep 2>&1) || fail "the scoped sweep failed: $out"
+for k in "$other_home_key" "$project_key" "$unknown_key"; do
+  [ "$(close_status "$H" "$k")" = open ] || fail "the sweep ended a page this home has no record of: $k"
+done
+[ ! -s "$CLOSE_LOG" ] || fail "the sweep acted on pages outside its records: $(cat "$CLOSE_LOG")"
+pass "close-sweep never touches another home's, a project's, or an unrecorded page"
+
+# Without lavish-axi the sweep and close-task quietly do nothing.
+H=$(close_home no-lavish)
+new_task_endpoint "$H" crew-n
+key=$(close_page "$H" "$H/data/crew-n/plan.html")
+close_run "$H" arm "$H/data/crew-n/plan.html" --for crew-n >/dev/null || fail "fixture: arm crew-n"
+rm -f "$H/state/crew-n.meta"
+NO_LAVISH_BIN=$(fm_fakebin "$CLOSE/no-lavish-bin")
+cp "$CLOSE_BIN/curl" "$CLOSE_BIN/osascript" "$CLOSE_BIN/close-store" "$NO_LAVISH_BIN/"
+NO_LAVISH_PATH="$NO_LAVISH_BIN:$(fm_test_base_path_sans "$PATH" lavish-axi)"
+: > "$CLOSE_LOG"
+rc=0
+out=$(PATH="$NO_LAVISH_PATH" FM_HOME="$H" FM_STATE_OVERRIDE="$H/state" FM_DATA_OVERRIDE="$H/data" \
+  LAVISH_AXI_STATE_DIR="$H/lavish" "$ROOT/bin/fm-procevent-lavish.sh" close-sweep 2>&1) || rc=$?
+expect_code 0 "$rc" "close-sweep without lavish-axi"
+[ -z "$out" ] || fail "close-sweep without lavish-axi printed: $out"
+rc=0
+out=$(PATH="$NO_LAVISH_PATH" FM_HOME="$H" FM_STATE_OVERRIDE="$H/state" FM_DATA_OVERRIDE="$H/data" \
+  LAVISH_AXI_STATE_DIR="$H/lavish" "$ROOT/bin/fm-procevent-lavish.sh" close-task crew-n --root "$H/data/crew-n" 2>&1) || rc=$?
+expect_code 0 "$rc" "close-task without lavish-axi"
+[ -z "$out" ] || fail "close-task without lavish-axi printed: $out"
+[ ! -s "$CLOSE_LOG" ] || fail "a home without lavish-axi still acted: $(cat "$CLOSE_LOG")"
+pass "without lavish-axi, close-sweep and close-task are silent no-ops"
+close_run "$H" close-sweep >/dev/null 2>&1 || true
+
+# A failed step is retried at the next check-up, and only a repeated failure
+# produces one notice naming the page.
+H=$(close_home retry)
+new_task_endpoint "$H" crew-r
+key=$(close_page "$H" "$H/data/crew-r/plan.html")
+close_run "$H" arm "$H/data/crew-r/plan.html" --for crew-r >/dev/null || fail "fixture: arm crew-r"
+rm -f "$H/state/crew-r.meta"
+out=$(CLOSE_END_FAIL=1 close_run "$H" close-sweep 2>&1) || fail "a sweep with a failing end step failed: $out"
+assert_contains "$out" "/session/$key" "a failed end step is reported with its page"
+[ ! -e "$H/state/procevent/lavish-$key.source" ] || fail "a failing end step stopped the listener from retiring"
+[ -z "$(close_wakes "$H")" ] || fail "a single failure already produced a notice"
+CLOSE_END_FAIL=1 close_run "$H" close-sweep >/dev/null 2>&1 || fail "the second failing sweep failed"
+[ "$(close_wakes "$H" | grep -c .)" = 1 ] || fail "a repeated failure did not produce exactly one notice: $(close_wakes "$H")"
+assert_contains "$(awk -F '\t' 'index($4, "lavish-close:") == 1 { print $5 }' "$H/state/.wake-queue")" \
+  "http://127.0.0.1:14399/session/$key" "the failure notice names the page"
+CLOSE_END_FAIL=1 close_run "$H" close-sweep >/dev/null 2>&1 || fail "the third failing sweep failed"
+[ "$(close_wakes "$H" | grep -c .)" = 1 ] || fail "a continuing failure produced a second notice"
+: > "$CLOSE_LOG"
+close_run "$H" close-sweep >/dev/null 2>&1 || fail "the recovering sweep failed"
+[ "$(close_logged end "$key")" = 1 ] || fail "the failed end step was not retried"
+[ "$(close_status "$H" "$key")" = ended ] || fail "the retried end step left the page open"
+: > "$CLOSE_LOG"
+out=$(close_run "$H" close-sweep 2>&1) || fail "the settled sweep failed"
+[ ! -s "$CLOSE_LOG" ] || fail "a recovered page was acted on again: $(cat "$CLOSE_LOG")"
+pass "a failed close step is retried each check-up and a repeated failure produces one notice"
+
+# Closing a tab is best effort: when Chrome refuses, pages still close, nothing
+# is recorded or retried, and the home is told once.
+H=$(close_home tab-fail)
+new_task_endpoint "$H" crew-t
+new_task_endpoint "$H" crew-u
+key=$(close_page "$H" "$H/data/crew-t/plan.html")
+other_key=$(close_page "$H" "$H/data/crew-u/plan.html")
+close_run "$H" arm "$H/data/crew-t/plan.html" --for crew-t >/dev/null || fail "fixture: arm crew-t"
+close_run "$H" arm "$H/data/crew-u/plan.html" --for crew-u >/dev/null || fail "fixture: arm crew-u"
+rm -f "$H/state/crew-t.meta" "$H/state/crew-u.meta"
+: > "$CLOSE_LOG"
+out=$(CLOSE_TAB_FAIL=1 close_run "$H" close-sweep 2>&1) || fail "a sweep with a refused tab close failed: $out"
+assert_contains "$out" "closed: http://127.0.0.1:14399/session/$key" "a refused tab close still closes the page"
+assert_contains "$out" "closed: http://127.0.0.1:14399/session/$other_key" "a refused tab close still closes the second page"
+[ "$(close_logged tab-fail "/session/$key")" = 1 ] || fail "fixture: the tab close was never attempted"
+[ "$(close_status "$H" "$key")" = ended ] && [ "$(close_status "$H" "$other_key")" = ended ] \
+  || fail "a refused tab close left a page open"
+[ -z "$(find "$H/state/lavish-close" -name '*.failed' 2>/dev/null)" ] || fail "a refused tab close left a failure record"
+: > "$CLOSE_LOG"
+CLOSE_TAB_FAIL=1 close_run "$H" close-sweep >/dev/null 2>&1 || fail "the second sweep with a refused tab close failed"
+[ ! -s "$CLOSE_LOG" ] || fail "a refused tab close was retried: $(cat "$CLOSE_LOG")"
+[ "$(close_wakes "$H" | grep -c .)" = 1 ] || fail "refused tab closes did not produce exactly one notice: $(close_wakes "$H")"
+pass "a refused Chrome tab close still closes the page, is never retried, and is reported once per home"
+
+# Lavish answering the end address with an error is a failure Firstmate is told about.
+H=$(close_home lavish-error)
+new_task_endpoint "$H" crew-e
+key=$(close_page "$H" "$H/worktree-crew-e/.lavish/page.html")
+close_run "$H" arm "$H/worktree-crew-e/.lavish/page.html" --for crew-e >/dev/null || fail "fixture: arm crew-e"
+rm -f "$H/state/crew-e.meta"
+rm -rf "$H/worktree-crew-e"
+CLOSE_CURL_BODY='{"error":"not found"}' close_run "$H" close-sweep >/dev/null 2>&1 || true
+CLOSE_CURL_BODY='{"error":"not found"}' close_run "$H" close-sweep >/dev/null 2>&1 || true
+[ "$(close_status "$H" "$key")" = open ] || fail "fixture: the erroring end address ended the page"
+[ "$(close_wakes "$H" | grep -c .)" = 1 ] || fail "an erroring Lavish end address was never reported"
+pass "an error from Lavish's end address is reported once instead of passing silently"
+
+# Two records naming different tasks leave the page alone, and Firstmate is told.
+if [ "$tasks_rc" -eq 0 ]; then
+  H=$(close_home conflict)
+  close_env "$H" tasks-axi add crew-p "Finished crew" --kind task --file "$H/data/backlog.md" >/dev/null
+  close_env "$H" tasks-axi "done" crew-p --file "$H/data/backlog.md" >/dev/null \
+    || fail "fixture: could not finish crew-p"
+  new_task_endpoint "$H" crew-q
+  key=$(close_page "$H" "$H/data/crew-p/plan.html")
+  close_run "$H" arm "$H/data/crew-p/plan.html" --for crew-q >/dev/null || fail "fixture: arm crew-q"
+  rm -f "$H/state/crew-q.meta"
+  : > "$CLOSE_LOG"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the conflicting sweep failed"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the repeated conflicting sweep failed"
+  [ "$(close_status "$H" "$key")" = open ] || fail "the sweep closed a page two records disagree about"
+  [ ! -s "$CLOSE_LOG" ] || fail "the sweep acted on a page two records disagree about: $(cat "$CLOSE_LOG")"
+  [ "$(close_wakes "$H" | grep -c .)" = 1 ] || fail "a record conflict was not reported exactly once"
+  pass "a page whose records name different tasks is left alone and reported once"
+
+  # Decision 3: answering a task's last open call closes its page; answering
+  # one of two does not.
+  H=$(close_home answer)
+  close_env "$H" tasks-axi add scout-a "Finished scout" --kind scout --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" scout-a-first scout-a
+  close_hold "$H" scout-a-second scout-a
+  key=$(close_page "$H" "$H/data/scout-a/plan.html")
+  printf 'Go with the first option.\n' > "$H/decision.txt"
+  : > "$CLOSE_LOG"
+  close_env "$H" "$ROOT/bin/fm-captain-hold.sh" answer scout-a-first --decision-file "$H/decision.txt" >/dev/null 2>&1 \
+    || fail "fixture: answering the first call failed"
+  [ "$(close_status "$H" "$key")" = open ] || fail "answering one of two calls closed the page"
+  [ ! -s "$CLOSE_LOG" ] || fail "answering one of two calls acted on the page: $(cat "$CLOSE_LOG")"
+  close_env "$H" "$ROOT/bin/fm-captain-hold.sh" answer scout-a-second --decision-file "$H/decision.txt" >/dev/null 2>&1 \
+    || fail "fixture: answering the second call failed"
+  [ "$(close_status "$H" "$key")" = ended ] || fail "answering the last open call left the page open"
+  [ "$(close_logged tab "/session/$key")" = 1 ] || fail "answering the last open call left the page's tab"
+  pass "answering a task's last open captain call closes its page, and one of two does not"
+
+  # A released hold means that work resumes: answering with --release leaves
+  # the task's page open and listening; a plain answer of a running task's last
+  # open call still closes it.
+  H=$(close_home answer-release)
+  new_task_endpoint "$H" crew-r
+  close_env "$H" tasks-axi add crew-r "Running crew" --kind task --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" crew-r-call crew-r
+  key=$(close_page "$H" "$H/data/crew-r/plan.html")
+  close_run "$H" arm "$H/data/crew-r/plan.html" --for crew-r >/dev/null \
+    || fail "fixture: could not arm crew-r's board"
+  printf 'Carry on with the plan.\n' > "$H/decision.txt"
+  : > "$CLOSE_LOG"
+  close_env "$H" "$ROOT/bin/fm-captain-hold.sh" answer crew-r-call --decision-file "$H/decision.txt" --release >/dev/null 2>&1 \
+    || fail "fixture: releasing the call failed"
+  [ "$(close_status "$H" "$key")" = open ] || fail "answering with --release closed the page of resuming work"
+  [ -e "$H/state/procevent/lavish-$key.source" ] || fail "answering with --release retired the page's listener"
+  [ ! -s "$CLOSE_LOG" ] || fail "answering with --release acted on the page: $(cat "$CLOSE_LOG")"
+  pass "answering with --release leaves the resuming task's page open and listening"
+
+  H=$(close_home answer-running)
+  new_task_endpoint "$H" crew-n
+  close_env "$H" tasks-axi add crew-n "Running crew" --kind task --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" crew-n-call crew-n
+  key=$(close_page "$H" "$H/data/crew-n/plan.html")
+  close_run "$H" arm "$H/data/crew-n/plan.html" --for crew-n >/dev/null \
+    || fail "fixture: could not arm crew-n's board"
+  printf 'Carry on with the plan.\n' > "$H/decision.txt"
+  : > "$CLOSE_LOG"
+  close_env "$H" "$ROOT/bin/fm-captain-hold.sh" answer crew-n-call --decision-file "$H/decision.txt" >/dev/null 2>&1 \
+    || fail "fixture: answering the call failed"
+  [ "$(close_status "$H" "$key")" = ended ] || fail "a plain answer of a running task's last open call left its page open"
+  [ ! -e "$H/state/procevent/lavish-$key.source" ] || fail "a plain answer of the last open call left the page's listener"
+  pass "a plain answer of a running task's last open call still closes its page"
+fi
+
+if [ "$tasks_rc" -eq 0 ]; then
+  # Captain words that arrive after close-task's first check but before it
+  # acknowledges the listener's rounds are never acknowledged or closed. The
+  # stand-in tasks-axi drops the round during the open-call lookup that sits
+  # between the two, and waits until the listener has captured it.
+  H=$(close_home ack-race)
+  new_task_endpoint "$H" crew-w
+  key=$(close_page "$H" "$H/data/crew-w/plan.html")
+  close_run "$H" arm "$H/data/crew-w/plan.html" --for crew-w >/dev/null \
+    || fail "fixture: could not arm crew-w's board"
+  RACE_BIN=$(fm_fakebin "$CLOSE/race")
+  cat > "$RACE_BIN/tasks-axi" <<RACE
+#!/usr/bin/env bash
+if [ ! -e "$H/race-dropped" ]; then
+  : > "$H/race-dropped"
+  printf '%s\\n' "\$FM_LAVISH_CLOSE_WORDS_ROUND" > "$CLOSE_ROUNDS/$key"
+  while [ ! -e "$H/state/procevent-inbox/lavish-$key.1.result" ] && [ "\$SECONDS" -lt 60 ]; do sleep 0.05; done
+fi
+exec "$(command -v tasks-axi)" "\$@"
+RACE
+  chmod +x "$RACE_BIN/tasks-axi"
+  rc=0
+  out=$(PATH="$RACE_BIN:$PATH" FM_LAVISH_CLOSE_WORDS_ROUND="$FM_LAVISH_CLOSE_WORDS_ROUND" \
+    close_run "$H" close-task crew-w --root "$H/data/crew-w" 2>&1) || rc=$?
+  [ -e "$H/state/procevent-inbox/lavish-$key.1.result" ] || fail "fixture: the racing round was never captured"
+  expect_code 3 "$rc" "close-task when captain words arrive mid-close"
+  assert_contains "$out" "bin/fm-procevent.sh handled lavish-$key 1" "the mid-close refusal names the round"
+  [ ! -e "$H/state/procevent-inbox/lavish-$key.1.handled" ] || fail "close-task acknowledged captain words that arrived mid-close"
+  [ -e "$H/state/procevent/lavish-$key.source" ] || fail "close-task retired a board whose captain words arrived mid-close"
+  [ "$(close_status "$H" "$key")" = open ] || fail "close-task ended a page whose captain words arrived mid-close"
+  pass "captain words arriving mid-close stay unacknowledged and keep the page open"
+
+  # The sweep closes a task-folder page close-task already saw, never one
+  # opened after the task finished (such as its report shown to the captain).
+  H=$(close_home report)
+  close_env "$H" tasks-axi add scout-r "Finished scout" --kind scout --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" scout-r-call scout-r
+  plan_key=$(close_page "$H" "$H/data/scout-r/plan.html")
+  out=$(close_run "$H" close-task scout-r --root "$H/data/scout-r" 2>&1) || fail "close-task with an open call failed: $out"
+  assert_contains "$out" "kept: http://127.0.0.1:14399/session/$plan_key" "close-task keeps the held page"
+  printf 'Carry on.\n' > "$H/decision.txt"
+  close_env "$H" "$ROOT/bin/fm-captain-hold.sh" answer scout-r-call --decision-file "$H/decision.txt" --release >/dev/null 2>&1 \
+    || fail "fixture: releasing scout-r's call failed"
+  report_key=$(close_page "$H" "$H/data/scout-r/report.html")
+  : > "$CLOSE_LOG"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the report sweep failed"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the repeated report sweep failed"
+  [ "$(close_status "$H" "$plan_key")" = ended ] || fail "the sweep left a page close-task already saw open"
+  [ "$(close_status "$H" "$report_key")" = open ] || fail "the sweep ended a page opened after its task finished"
+  [ "$(close_logged tab "/session/$report_key")" = 0 ] || fail "the sweep closed the tab of a page opened after its task finished"
+  pass "close-sweep closes a page that existed before its task finished and leaves one opened after"
+
+  # A page close-task already closed, reopened at the same path after its task
+  # finished, is a new page the sweep leaves alone.
+  H=$(close_home reopen)
+  close_env "$H" tasks-axi add scout-o "Finished scout" --kind scout --file "$H/data/backlog.md" >/dev/null
+  key=$(close_page "$H" "$H/data/scout-o/plan.html")
+  out=$(close_run "$H" close-task scout-o --root "$H/data/scout-o" 2>&1) || fail "close-task of scout-o failed: $out"
+  assert_contains "$out" "closed: http://127.0.0.1:14399/session/$key" "close-task closes scout-o's page"
+  close_env "$H" lavish-axi "$H/data/scout-o/plan.html" >/dev/null || fail "fixture: could not reopen scout-o's page"
+  : > "$CLOSE_LOG"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the reopen sweep failed"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the repeated reopen sweep failed"
+  [ "$(close_status "$H" "$key")" = open ] || fail "the sweep ended a page reopened after its task finished"
+  [ ! -s "$CLOSE_LOG" ] || fail "the sweep acted on a page reopened after its task finished: $(cat "$CLOSE_LOG")"
+  pass "close-sweep leaves a closed page reopened at the same path after its task finished"
+fi
+
 printf '\nall procevent tests passed\n'

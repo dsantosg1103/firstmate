@@ -4179,6 +4179,11 @@ while :; do
   if [ -d "$STATE/procevent" ]; then
     FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" reconcile >/dev/null 2>&1 || true
   fi
+  # The Lavish plan-page check-up: close finished tasks' pages and retry failed
+  # close steps (bin/fm-procevent-lavish.sh close-sweep owns the rules; a
+  # notice it owes arrives as its own queued wake).
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-procevent-lavish.sh" close-sweep >/dev/null 2>&1 || true
   # Then deliver any queued-but-unsurfaced result, including one a runner
   # published while this watcher was between cycles.
   procevent_surface_queued

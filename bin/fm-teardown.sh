@@ -3826,6 +3826,29 @@ if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   fi
 fi
 
+# A finished task's Lavish pages close before its copy is returned; a page
+# still waiting on an open captain call is kept, or saved into data/<id>/ when
+# it lives in the copy (bin/fm-procevent-lavish.sh close-task owns the rules).
+# A refusal - unread captain words, or a page that cannot be saved - stops here
+# while everything is intact. --force does not lift it: it authorizes
+# discarding unlanded work, never the captain's words.
+if [ "$KIND" != secondmate ]; then
+  TEARDOWN_LAVISH_ARGS=(--root "$DATA/$ID" --save-into "$DATA/$ID")
+  if teardown_owns_worktree && [ -n "$WT" ]; then
+    TEARDOWN_LAVISH_ARGS+=(--root "$WT")
+  fi
+  TEARDOWN_LAVISH_STATUS=0
+  TEARDOWN_LAVISH_OUT=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+    FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-procevent-lavish.sh" close-task "$ID" \
+    "${TEARDOWN_LAVISH_ARGS[@]}" 2>&1) || TEARDOWN_LAVISH_STATUS=$?
+  if [ "$TEARDOWN_LAVISH_STATUS" -ne 0 ]; then
+    [ -z "$TEARDOWN_LAVISH_OUT" ] || printf '%s\n' "$TEARDOWN_LAVISH_OUT" >&2
+    echo "REFUSED: task $ID's Lavish pages cannot be closed safely, so nothing was cleaned up; resolve the line above and rerun teardown." >&2
+    exit 1
+  fi
+  [ -z "$TEARDOWN_LAVISH_OUT" ] || printf '%s\n' "$TEARDOWN_LAVISH_OUT"
+fi
+
 # A Herdr close may reposition shared workspace order, so the whole
 # destructive sequence below (pane close, worktree return, record removal)
 # runs under the named-session presentation lock, acquired BEFORE anything is

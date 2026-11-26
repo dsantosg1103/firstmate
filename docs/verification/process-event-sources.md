@@ -59,6 +59,23 @@ A `waiting` session, a `missing` one, an `unknown` or unreadable result, and eve
 The content check anchors on column zero for the same reason the terminal check reads the leading `session:` block: content headers are top-level and their rows are indented, so captain-supplied payload text can neither forge a content block nor hide behind a fake empty one.
 Any recognized block counts as present even when its declared count is zero, and a malformed top-level `prompts` or `feedback` header is indeterminate and therefore announced.
 
+## Ending a Lavish page whose file is gone
+
+Verified on 2026-11-25 on macOS (Darwin 27.0.0) with `lavish-axi` 0.1.98 installed.
+`lavish-axi end --help` takes only `<html-file>`, and `end` resolves that file's real path before it reaches the server, so a page whose file was deleted with its task's copy cannot be ended through it.
+The page's own End button uses the per-session route `POST /api/<key>/end`, which never reads the file; `bin/fm-procevent-lavish.sh` ends a gone-file page there and accepts only `{"status":"ended"}`.
+`tests/fm-procevent-lavish-close-live-e2e.test.sh` refreshes this evidence against a throwaway server on its own port and state directory, with no browser tab and a stand-in tab step, and fails naming the installed version if the route stops working:
+
+```text
+$ bin/fm-test-run.sh tests/fm-procevent-lavish-close-live-e2e.test.sh | grep -v '^FM_TEST_\(BEGIN\|END\|SLOWEST\)'
+# lavish-axi 0.1.98
+ok - lavish-axi 0.1.98 ends a page whose file is gone through its own address
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=2964
+FM_TEST_SUMMARY_FAMILY family=live-harness-optin count=1 duration_ms=2899 failed=0
+```
+
+Ending a session does not close its browser tab; the page only disables itself, which is why the close also closes the page's exact Chrome tabs on this Mac.
+
 ## The loss limitation this runner cannot close
 
 The published poll clears feedback destructively before returning it.
@@ -132,6 +149,7 @@ Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose c
 | teardown refusal ordering | a later public-followup refusal retains the home and its active process-event registration without invoking its sweep |
 | healthy-home invariance | homes with no registration or owned runner claim retain ordinary registration-only supervision and teardown behavior |
 | source-only supervision | a registered source with no task metadata trips the shared predicate and general guard |
+| Lavish plan pages close with their task | `tests/fm-procevent.test.sh` drives `close-task` and `close-sweep` against stand-in Lavish, curl, and osascript tools: a finished task's page is unlistened, ended, and only its own tab closed; unread captain words refuse with the round named while an empty or failure-only round is acknowledged; an open captain call keeps a surviving page and saves one out of a copy being deleted, carrying its listener and answer binding; finished-task and gone-file pages close (the latter by key) while the bearings board, another home's, a project's, and unrecorded pages are untouched; a repeat sweep and a home without `lavish-axi` do nothing; a page whose session already ended is never saved or kept; captain words arriving mid-close are never acknowledged; a task-folder page opened after its task finished is left to the captain; a failed listener or end step is retried and only a repeated failure, a Lavish error, or a record conflict notifies once, while a refused Chrome tab close still counts as closed and notifies once per home; answering a task's last open call closes its page, except an `answer --release`, which leaves it open and listened. `tests/fm-teardown.test.sh` proves cleanup closes the page before returning the copy, keeps and saves open-call pages, and refuses on unread words with everything intact |
 | argv integrity | an argument containing spaces survives as one argument, a shell-looking argument is passed literally with no interpretation, and an unrepresentable newline is rejected at registration |
 | bounded output | output beyond `FM_PROCEVENT_MAX_OUTPUT_BYTES` is drained while only the bound is staged, then truncated and captured |
 | condition->action single-fire and trust | `tests/fm-procevent-when.test.sh` drives the public `when` adapter and generic runner with real commands, proving stable true fires once, a claimed fire restarts as ambiguous without a second action, concurrent arms publish one complete watch, and mutated specs or action executables are refused before execution |
