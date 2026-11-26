@@ -5567,23 +5567,48 @@ new_task_endpoint "$H" crew-r
 key=$(close_page "$H" "$H/data/crew-r/plan.html")
 close_run "$H" arm "$H/data/crew-r/plan.html" --for crew-r >/dev/null || fail "fixture: arm crew-r"
 rm -f "$H/state/crew-r.meta"
-out=$(CLOSE_TAB_FAIL=1 close_run "$H" close-sweep 2>&1) || fail "a sweep with a failing tab step failed: $out"
-assert_contains "$out" "/session/$key" "a failed tab step is reported with its page"
-[ "$(close_status "$H" "$key")" = ended ] || fail "a failing tab step stopped the page from ending"
+out=$(CLOSE_END_FAIL=1 close_run "$H" close-sweep 2>&1) || fail "a sweep with a failing end step failed: $out"
+assert_contains "$out" "/session/$key" "a failed end step is reported with its page"
+[ ! -e "$H/state/procevent/lavish-$key.source" ] || fail "a failing end step stopped the listener from retiring"
 [ -z "$(close_wakes "$H")" ] || fail "a single failure already produced a notice"
-CLOSE_TAB_FAIL=1 close_run "$H" close-sweep >/dev/null 2>&1 || fail "the second failing sweep failed"
+CLOSE_END_FAIL=1 close_run "$H" close-sweep >/dev/null 2>&1 || fail "the second failing sweep failed"
 [ "$(close_wakes "$H" | grep -c .)" = 1 ] || fail "a repeated failure did not produce exactly one notice: $(close_wakes "$H")"
 assert_contains "$(awk -F '\t' 'index($4, "lavish-close:") == 1 { print $5 }' "$H/state/.wake-queue")" \
   "http://127.0.0.1:14399/session/$key" "the failure notice names the page"
-CLOSE_TAB_FAIL=1 close_run "$H" close-sweep >/dev/null 2>&1 || fail "the third failing sweep failed"
+CLOSE_END_FAIL=1 close_run "$H" close-sweep >/dev/null 2>&1 || fail "the third failing sweep failed"
 [ "$(close_wakes "$H" | grep -c .)" = 1 ] || fail "a continuing failure produced a second notice"
 : > "$CLOSE_LOG"
 close_run "$H" close-sweep >/dev/null 2>&1 || fail "the recovering sweep failed"
-[ "$(close_logged tab "/session/$key")" = 1 ] || fail "the failed tab step was not retried"
+[ "$(close_logged end "$key")" = 1 ] || fail "the failed end step was not retried"
+[ "$(close_status "$H" "$key")" = ended ] || fail "the retried end step left the page open"
 : > "$CLOSE_LOG"
 out=$(close_run "$H" close-sweep 2>&1) || fail "the settled sweep failed"
 [ ! -s "$CLOSE_LOG" ] || fail "a recovered page was acted on again: $(cat "$CLOSE_LOG")"
 pass "a failed close step is retried each check-up and a repeated failure produces one notice"
+
+# Closing a tab is best effort: when Chrome refuses, pages still close, nothing
+# is recorded or retried, and the home is told once.
+H=$(close_home tab-fail)
+new_task_endpoint "$H" crew-t
+new_task_endpoint "$H" crew-u
+key=$(close_page "$H" "$H/data/crew-t/plan.html")
+other_key=$(close_page "$H" "$H/data/crew-u/plan.html")
+close_run "$H" arm "$H/data/crew-t/plan.html" --for crew-t >/dev/null || fail "fixture: arm crew-t"
+close_run "$H" arm "$H/data/crew-u/plan.html" --for crew-u >/dev/null || fail "fixture: arm crew-u"
+rm -f "$H/state/crew-t.meta" "$H/state/crew-u.meta"
+: > "$CLOSE_LOG"
+out=$(CLOSE_TAB_FAIL=1 close_run "$H" close-sweep 2>&1) || fail "a sweep with a refused tab close failed: $out"
+assert_contains "$out" "closed: http://127.0.0.1:14399/session/$key" "a refused tab close still closes the page"
+assert_contains "$out" "closed: http://127.0.0.1:14399/session/$other_key" "a refused tab close still closes the second page"
+[ "$(close_logged tab-fail "/session/$key")" = 1 ] || fail "fixture: the tab close was never attempted"
+[ "$(close_status "$H" "$key")" = ended ] && [ "$(close_status "$H" "$other_key")" = ended ] \
+  || fail "a refused tab close left a page open"
+[ -z "$(find "$H/state/lavish-close" -name '*.failed' 2>/dev/null)" ] || fail "a refused tab close left a failure record"
+: > "$CLOSE_LOG"
+CLOSE_TAB_FAIL=1 close_run "$H" close-sweep >/dev/null 2>&1 || fail "the second sweep with a refused tab close failed"
+[ ! -s "$CLOSE_LOG" ] || fail "a refused tab close was retried: $(cat "$CLOSE_LOG")"
+[ "$(close_wakes "$H" | grep -c .)" = 1 ] || fail "refused tab closes did not produce exactly one notice: $(close_wakes "$H")"
+pass "a refused Chrome tab close still closes the page, is never retried, and is reported once per home"
 
 # Lavish answering the end address with an error is a failure Firstmate is told about.
 H=$(close_home lavish-error)
@@ -5668,6 +5693,59 @@ if [ "$tasks_rc" -eq 0 ]; then
   [ "$(close_status "$H" "$key")" = ended ] || fail "a plain answer of a running task's last open call left its page open"
   [ ! -e "$H/state/procevent/lavish-$key.source" ] || fail "a plain answer of the last open call left the page's listener"
   pass "a plain answer of a running task's last open call still closes its page"
+fi
+
+if [ "$tasks_rc" -eq 0 ]; then
+  # Captain words that arrive after close-task's first check but before it
+  # acknowledges the listener's rounds are never acknowledged or closed. The
+  # stand-in tasks-axi drops the round during the open-call lookup that sits
+  # between the two, and waits until the listener has captured it.
+  H=$(close_home ack-race)
+  new_task_endpoint "$H" crew-w
+  key=$(close_page "$H" "$H/data/crew-w/plan.html")
+  close_run "$H" arm "$H/data/crew-w/plan.html" --for crew-w >/dev/null \
+    || fail "fixture: could not arm crew-w's board"
+  RACE_BIN=$(fm_fakebin "$CLOSE/race")
+  cat > "$RACE_BIN/tasks-axi" <<RACE
+#!/usr/bin/env bash
+if [ ! -e "$H/race-dropped" ]; then
+  : > "$H/race-dropped"
+  printf '%s\\n' "\$FM_LAVISH_CLOSE_WORDS_ROUND" > "$CLOSE_ROUNDS/$key"
+  while [ ! -e "$H/state/procevent-inbox/lavish-$key.1.result" ] && [ "\$SECONDS" -lt 60 ]; do sleep 0.05; done
+fi
+exec "$(command -v tasks-axi)" "\$@"
+RACE
+  chmod +x "$RACE_BIN/tasks-axi"
+  rc=0
+  out=$(PATH="$RACE_BIN:$PATH" FM_LAVISH_CLOSE_WORDS_ROUND="$FM_LAVISH_CLOSE_WORDS_ROUND" \
+    close_run "$H" close-task crew-w --root "$H/data/crew-w" 2>&1) || rc=$?
+  [ -e "$H/state/procevent-inbox/lavish-$key.1.result" ] || fail "fixture: the racing round was never captured"
+  expect_code 3 "$rc" "close-task when captain words arrive mid-close"
+  assert_contains "$out" "bin/fm-procevent.sh handled lavish-$key 1" "the mid-close refusal names the round"
+  [ ! -e "$H/state/procevent-inbox/lavish-$key.1.handled" ] || fail "close-task acknowledged captain words that arrived mid-close"
+  [ -e "$H/state/procevent/lavish-$key.source" ] || fail "close-task retired a board whose captain words arrived mid-close"
+  [ "$(close_status "$H" "$key")" = open ] || fail "close-task ended a page whose captain words arrived mid-close"
+  pass "captain words arriving mid-close stay unacknowledged and keep the page open"
+
+  # The sweep closes a task-folder page close-task already saw, never one
+  # opened after the task finished (such as its report shown to the captain).
+  H=$(close_home report)
+  close_env "$H" tasks-axi add scout-r "Finished scout" --kind scout --file "$H/data/backlog.md" >/dev/null
+  close_hold "$H" scout-r-call scout-r
+  plan_key=$(close_page "$H" "$H/data/scout-r/plan.html")
+  out=$(close_run "$H" close-task scout-r --root "$H/data/scout-r" 2>&1) || fail "close-task with an open call failed: $out"
+  assert_contains "$out" "kept: http://127.0.0.1:14399/session/$plan_key" "close-task keeps the held page"
+  printf 'Carry on.\n' > "$H/decision.txt"
+  close_env "$H" "$ROOT/bin/fm-captain-hold.sh" answer scout-r-call --decision-file "$H/decision.txt" --release >/dev/null 2>&1 \
+    || fail "fixture: releasing scout-r's call failed"
+  report_key=$(close_page "$H" "$H/data/scout-r/report.html")
+  : > "$CLOSE_LOG"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the report sweep failed"
+  close_run "$H" close-sweep >/dev/null 2>&1 || fail "the repeated report sweep failed"
+  [ "$(close_status "$H" "$plan_key")" = ended ] || fail "the sweep left a page close-task already saw open"
+  [ "$(close_status "$H" "$report_key")" = open ] || fail "the sweep ended a page opened after its task finished"
+  [ "$(close_logged tab "/session/$report_key")" = 0 ] || fail "the sweep closed the tab of a page opened after its task finished"
+  pass "close-sweep closes a page that existed before its task finished and leaves one opened after"
 fi
 
 printf '\nall procevent tests passed\n'

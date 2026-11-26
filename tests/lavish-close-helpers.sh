@@ -13,6 +13,7 @@
 #   end <key> <host>:<port>       lavish-axi end <file>, with the server it was pointed at
 #   curl-end <key> <base-url>     POST <base-url>/api/<key>/end
 #   tab /session/<key>            the Chrome tab close
+#   tab-fail /session/<key>       a Chrome tab close that failed (CLOSE_TAB_FAIL=1)
 # `lavish-axi poll <file>` blocks until $CLOSE_ROUNDS/<key> exists, then prints
 # and consumes it, so a test controls exactly what a board's listener captures.
 # Failure switches: CLOSE_END_FAIL=1, CLOSE_CURL_FAIL=1, CLOSE_CURL_BODY=<body>,
@@ -112,11 +113,12 @@ printf 'curl-end %s %s\n' "$key" "${url%%/api/*}" >> "$CLOSE_LOG"
 SH
   cat > "$dir/osascript" <<'SH'
 #!/usr/bin/env bash
+eval "needle=\${$#}"
 if [ "${CLOSE_TAB_FAIL:-0}" = 1 ]; then
+  printf 'tab-fail %s\n' "$needle" >> "$CLOSE_LOG"
   printf 'execution error: Not authorized to send Apple events to Google Chrome. (-1743)\n' >&2
   exit 1
 fi
-eval "needle=\${$#}"
 printf 'tab %s\n' "$needle" >> "$CLOSE_LOG"
 printf '1\n'
 SH

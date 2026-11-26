@@ -81,7 +81,10 @@
 # registered for it in this home, or a session in Lavish's own store whose file
 # lies under one of close-task's --root directories (compared by full real
 # path) or, for the sweep, under this home's data/<task-id>/ for a task this
-# home's backlog knows. If a listener and a folder name different tasks, the
+# home's backlog knows. The sweep closes such a folder-only page only when its
+# file is gone or an earlier close-task for that task already saw it (recorded
+# in state/lavish-close/task-<id>.pages), so a page opened after the task
+# finished, such as its report shown to the captain, is left alone. If a listener and a folder name different tasks, the
 # page is left alone and Firstmate is told once. A page with no such record is
 # never touched, which is what keeps other homes' and projects' pages safe.
 # The bearings board is never a sweep candidate.
@@ -100,8 +103,8 @@
 #
 # Unread captain words always win: a page whose listener holds an
 # unacknowledged round carrying captain content (any prompt or feedback item,
-# or a block this reader cannot prove empty) is never closed or saved.
-# close-task refuses naming the round and the acknowledgement that releases it;
+# or a block this reader cannot prove empty) is never closed or saved, and a
+# round is acknowledged only after that same check. close-task refuses naming the round and the acknowledgement that releases it;
 # the sweep instead tells Firstmate once per round for a finished task's
 # listener. An empty or failure-only round is acknowledged and closed.
 #
@@ -111,9 +114,12 @@
 # address POST /api/<key>/end, which must answer {"status":"ended"}), and close
 # its tabs in Google Chrome on this Mac (only tabs whose address carries the
 # page's /session/<key>; nothing when Chrome is not running or osascript is
-# absent). A failed step never blocks cleanup by itself: it is recorded under
-# state/lavish-close/ and retried at every later check-up, and only a second
-# consecutive failure tells Firstmate, once, naming the page. Without
+# absent). Closing the tab is best effort: when it fails (Chrome automation not
+# permitted, a timeout, any error) the page still counts as closed, nothing is
+# retried, and Firstmate is told once per home. A failed listener or session
+# step never blocks cleanup by itself: it is recorded under state/lavish-close/
+# and retried at every later check-up, and only a second consecutive failure
+# tells Firstmate, once, naming the page. Without
 # lavish-axi both commands are silent no-ops, because the startup check already
 # reports a missing Lavish. close-task exits 3 on a refusal, 1 when Lavish's
 # page list cannot be read, and 0 otherwise.
@@ -1283,10 +1289,18 @@ close_end_session() {  # <key> <url> <file>: prints a failure detail and returns
   return 1
 }
 
+close_refuse_words() {  # <label> <owner> <key> <result-file>
+  local seq
+  seq=$(close_round_sequence "$4")
+  close_refuse "$1 (task $2) has unread captain words in round lavish-$3 $seq; read them with bin/fm-procevent-lavish.sh read $4, then acknowledge with bin/fm-procevent.sh handled lavish-$3 $seq"
+}
+
 # Stop listening, end the session, close the tab. Each step is idempotent; a
-# failure is recorded for the next check-up instead of stopping cleanup.
-close_finish_page() {  # <key> <owner>
-  local key=$1 owner=$2 url status file label failed='' detail result seq
+# listener or session failure is recorded for the next check-up instead of
+# stopping cleanup. Returns 1, closing nothing more, when a round carrying
+# captain words turns up: close-task refuses, the sweep leaves it for later.
+close_finish_page() {  # <mode> <key> <owner>
+  local mode=$1 key=$2 owner=$3 url status file label failed='' detail result seq
   url=$(close_session_field "$key" 3)
   status=$(close_session_field "$key" 2)
   file=$(close_session_field "$key" 4)
@@ -1294,6 +1308,10 @@ close_finish_page() {  # <key> <owner>
   if [ -n "$(close_source_owner "$key")" ]; then
     while IFS= read -r result <&7; do
       [ -n "$result" ] || continue
+      if close_round_has_words "$result"; then
+        [ "$mode" != task ] || close_refuse_words "$label" "$owner" "$key" "$result"
+        return 1
+      fi
       seq=$(close_round_sequence "$result")
       FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" handled "lavish-$key" "$seq" >/dev/null 2>&1 \
         || failed="$failed; acknowledging round $seq failed"
@@ -1304,7 +1322,10 @@ close_finish_page() {  # <key> <owner>
   if [ "$status" = open ]; then
     detail=$(close_end_session "$key" "$url" "$file") || failed="$failed; ending it failed: $detail"
   fi
-  close_tabs "$key" || failed="$failed; closing its Chrome tab failed"
+  if ! close_tabs "$key"; then
+    close_notice_once chrome tabs 1 \
+      "Firstmate could not close a finished Lavish page's Chrome tab on this Mac (Chrome automation may not be permitted for the terminal, or Chrome did not answer). Pages are still ended; close leftover tabs by hand, or allow the terminal to control Google Chrome in System Settings > Privacy & Security > Automation." || true
+  fi
   if [ -z "$failed" ]; then
     close_record_clear "$key"
     printf 'closed: %s (task %s)\n' "$label" "$owner"
@@ -1373,7 +1394,8 @@ close_save_page() {  # <key> <owner> <save-into>
       return 0
     fi
   fi
-  close_finish_page "$key" "$owner"
+  [ -z "$new_key" ] || close_task_pages_note "$owner" "$new_key"
+  close_finish_page task "$key" "$owner" || return 0
   printf 'saved: %s -> %s (%s; task %s still has an open captain call; give the captain the new link)\n' \
     "${url:-lavish-$key}" "${new_url:-$target}" "$target" "$owner"
 }
@@ -1394,7 +1416,7 @@ close_consider() {  # <mode> <key> <owner> <evidence> [save-into] [root...]
   if [ -n "$src" ] && result=$(close_worded_round "lavish-$key"); then
     seq=$(close_round_sequence "$result")
     if [ "$mode" = task ]; then
-      close_refuse "$label (task $owner) has unread captain words in round lavish-$key $seq; read them with bin/fm-procevent-lavish.sh read $result, then acknowledge with bin/fm-procevent.sh handled lavish-$key $seq"
+      close_refuse_words "$label" "$owner" "$key" "$result"
     elif [ "$src" != - ]; then
       close_notice_once "$key" unread "$seq" \
         "Lavish page $label of finished task $owner holds unread captain words in round lavish-$key $seq, which no worker will read. Read them with bin/fm-procevent-lavish.sh read $result, then acknowledge with bin/fm-procevent.sh handled lavish-$key $seq so the page can close." || true
@@ -1420,7 +1442,25 @@ close_consider() {  # <mode> <key> <owner> <evidence> [save-into] [root...]
     printf 'kept: %s (task %s still has an open captain call)\n' "$label" "$owner"
     return 0
   fi
-  close_finish_page "$key" "$owner"
+  close_finish_page "$mode" "$key" "$owner" || true
+}
+
+close_task_pages_file() {  # <task-id>
+  printf '%s/task-%s.pages\n' "$CLOSE_STATE_DIR" "$1"
+}
+
+# Remember which pages close-task saw for a task, so the sweep closes only
+# folder pages that already existed then.
+close_task_pages_note() {  # <task-id> <key>...
+  local file
+  [ "$#" -ge 2 ] || return 0
+  file=$(close_task_pages_file "$1")
+  shift
+  (umask 077; mkdir -p "$CLOSE_STATE_DIR" && printf '%s\n' "$@" >> "$file") 2>/dev/null || true
+}
+
+close_task_page_seen() {  # <task-id> <key>
+  grep -Fxq -- "$2" "$(close_task_pages_file "$1")" 2>/dev/null
 }
 
 close_sessions_load() {
@@ -1502,6 +1542,8 @@ EOF
   done 7<<EOF
 $CLOSE_SESSIONS
 EOF
+  # shellcheck disable=SC2086  # $seen holds one 16-hex key per line.
+  close_task_pages_note "$task" $seen
   [ "$CLOSE_REFUSED" = 0 ] || exit 3
 }
 
@@ -1562,6 +1604,7 @@ EOF
     [ "$file" != "$bearings" ] || continue
     path_owner=$(close_data_owner "$file")
     [ -n "$path_owner" ] || continue
+    [ ! -e "$file" ] || close_task_page_seen "$path_owner" "$key" || continue
     seen+="$key"$'\n'
     close_consider sweep "$key" "$path_owner" path
   done 7<<EOF
